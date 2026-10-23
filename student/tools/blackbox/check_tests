@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""check_tests: review assertion style, conflicting literal answers, and budget risk.
+
+Usage: check_tests [--max-calls N]
+
+Flags self.assert* calls in plain test classes with no matching local method.
+Use `assert actual == expected`, or a proper unittest.TestCase subclass.
+Inherited, decorated, and dynamically supplied assertion methods are not resolved.
+Flags different literal answers for identical literal inputs on fresh Solution
+instances. Stateful/dynamic cases are skipped; it cannot choose the correct answer.
+Warns above N source call sites (default 25), NOT an exact runtime call count.
+Loops, parametrization, helpers and collection can change actual budget usage.
+After this guard passes, runs the unchanged shared check_tests (syntax, source
+access, assertions and pytest collection). Collection imports test modules but
+never deliberately runs test bodies. Does not verify expected answers or inputs.
+"""
+
+import ast
+import argparse
+import re
+import runpy
+import sys
+from pathlib import Path
+
+
+ASSERTION_METHODS = {
+    'assertEqual', 'assertNotEqual', 'assertTrue', 'assertFalse',
+    'assertIs', 'assertIsNot', 'assertIsNone', 'assertIsNotNone',
+    'assertIn', 'assertNotIn', 'assertIsInstance', 'assertNotIsInstance',
+    'assertRaises', 'assertRaisesRegex', 'assertWarns', 'assertWarnsRegex',
+    'assertAlmostEqual', 'assertNotAlmostEqual', 'assertGreater',
+    'assertGreaterEqual', 'assertLess', 'assertLessEqual', 'assertRegex',
+    'assertNotRegex', 'assertCountEqual', 'assertSequenceEqual',
+    'assertListEqual', 'assertTupleEqual', 'assertSetEqual', 'assertDictEqual',
+    'assertMultiLineEqual', 'assertLogs', 'assertNoLogs',
+}
+
+
+def literal_answers(tree, method, params):
+    """Only compare simple equality assertions with fresh, direct Solution receivers."""
+    for func in ast.walk(tree):
+        if not isinstance(func, ast.FunctionDef) or not func.name.startswith('test'):
+            continue
+        values, fresh, results = {}, set(), {}
+
+        def literal(node):
+            if isinstance(node, ast.Name) and node.id in values:
+                return values[node.id]
+            return ast.literal_eval(node)
+
+        def invocation(node):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != method:
+                return None
+            receiver = node.func.value
+            direct = (isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name)
+                      and receiver.func.id == 'Solution' and not receiver.args and not receiver.keywords)
+            instance = isinstance(receiver, ast.Name) and receiver.id in fresh
+            if not (direct or instance):
+                return None
+            # A subsequent call on the same instance may intentionally depend on state.
+            if instance:
+                fresh.discard(receiver.id)
+            try:
+                if len(node.args) > len(params):
+                    return None
+                bound = dict(zip(params, (literal(a) for a in node.args)))
+                for kw in node.keywords:
+                    if kw.arg not in params or kw.arg in bound:
+                        return None
+                    bound[kw.arg] = literal(kw.value)
+                if set(bound) != set(params):
+                    return None
+                return repr([bound[p] for p in params])
+            except (ValueError, TypeError, RecursionError):
+                return None
+
+        for stmt in func.body:
+            if not isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Assert, ast.Expr)):
+                values.clear()
+                fresh.clear()
+                results.clear()
+                continue
+            if isinstance(stmt, ast.Assert):
+                test = stmt.test
+                if (isinstance(test, ast.Compare) and len(test.ops) == 1
+                        and isinstance(test.ops[0], ast.Eq)):
+                    for actual, expected in ((test.left, test.comparators[0]),
+                                             (test.comparators[0], test.left)):
+                        key = results.get(actual.id) if isinstance(actual, ast.Name) else invocation(actual)
+                        if key is None:
+                            continue
+                        try:
+                            answer = literal(expected)
+                        except (ValueError, TypeError, RecursionError):
+                            continue
+                        yield stmt.lineno, key, answer
+                        break
+            # Calls can mutate inputs; do not retain literal variables after them.
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                value = stmt.value
+                key = invocation(value)
+                try:
+                    assigned = ast.literal_eval(value)
+                    has_literal = True
+                except (ValueError, TypeError, RecursionError):
+                    has_literal = False
+                if any(isinstance(n, ast.Call) for n in ast.walk(stmt)):
+                    values.clear()
+                    results.clear()
+                    fresh.clear()
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        values.clear()
+                        results.clear()
+                        continue
+                    values.pop(target.id, None)
+                    results.pop(target.id, None)
+                    fresh.discard(target.id)
+                    if key is not None:
+                        results[target.id] = key
+                    elif (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                          and value.func.id == 'Solution' and not value.args and not value.keywords):
+                        fresh.add(target.id)
+                    elif has_literal:
+                        values[target.id] = assigned
+            elif any(isinstance(n, ast.Call) for n in ast.walk(stmt)):
+                values.clear()
+                results.clear()
+                # Unknown helper calls might modify an instance as well.
+                fresh.clear()
+
+
+def style_findings(tree):
+    for cls in ast.walk(tree):
+        if not isinstance(cls, ast.ClassDef) or not cls.name.startswith('Test'):
+            continue
+        # An unknown base/decorator may legitimately supply assertion methods.
+        if cls.bases or cls.decorator_list:
+            continue
+        local = {node.name for node in cls.body
+                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+        if local & {'__getattr__', '__getattribute__'}:
+            continue
+        for stmt in cls.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                local.update(target.id for target in targets if isinstance(target, ast.Name))
+        for func in cls.body:
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)) or not func.name.startswith('test'):
+                continue
+            if not func.args.args or func.decorator_list:
+                continue
+            receiver = func.args.args[0].arg
+            for node in ast.walk(func):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                attr = node.func
+                if (isinstance(attr.value, ast.Name) and attr.value.id == receiver
+                        and attr.attr in ASSERTION_METHODS and attr.attr not in local):
+                    yield node.lineno, cls.name, attr.attr
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--max-calls', type=int, default=25)
+    options = parser.parse_args()
+    if options.max_calls < 1:
+        parser.error('--max-calls must be positive')
+    findings = []
+    method, params = None, []
+    seen, sites, comparisons = {}, 0, 0
+    try:
+        if Path('tests').is_symlink():
+            raise ValueError('symlinked tests directory is unsupported')
+        spec = Path('SPEC.md')
+        if spec.exists() and not spec.is_symlink():
+            signatures = re.findall(r'^\s*(def\s+\w+\s*\(.*\).*:)\s*$', spec.read_text(), re.MULTILINE)
+            if len(signatures) == 1:
+                try:
+                    signature = ast.parse(signatures[0] + '\n    pass\n').body[0]
+                    method = signature.name
+                    params = [a.arg for a in signature.args.args if a.arg != 'self']
+                except SyntaxError:
+                    pass
+        for path in sorted(Path('tests').glob('test_*.py')):
+            if path.is_symlink():
+                raise ValueError('symlinked test file is unsupported')
+            try:
+                tree = ast.parse(path.read_text())
+            except SyntaxError:
+                continue  # Shared checker reports syntax diagnostics.
+            findings.extend(f'{path}:{line}: {cls} has no local {method} method and no base class; '
+                            'use a plain assert or a proper unittest.TestCase subclass.'
+                            for line, cls, method in style_findings(tree))
+            if method:
+                sites += sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                             and n.func.attr == method for n in ast.walk(tree))
+                for line, key, answer in literal_answers(tree, method, params):
+                    comparisons += 1
+                    location = f'{path}:{line}'
+                    if key in seen and seen[key][0] != answer:
+                        findings.append(f'{location}: conflicting expected answers for identical inputs; '
+                                        f'compare {seen[key][1]}. Re-derive both answers from SPEC.md.')
+                    else:
+                        seen[key] = (answer, location)
+    except (OSError, ValueError, RecursionError) as error:
+        print(f'Static review unavailable: {error}')
+        return 1
+    over_budget = method is not None and sites > options.max_calls
+    if method:
+        print(f'Static review: {comparisons} literal equality assertions; {sites} source call sites.')
+        if over_budget:
+            print(f'BUDGET RISK: {sites} source call sites exceed {options.max_calls} allowed calls. '
+                  'Review actual execution and prioritize cases; source sites are not runtime counts.')
+        print('Dynamic/stateful assertions are unverified; loops, parametrization and helpers change call usage.')
+    else:
+        print('UNKNOWN: no unique readable signature; contradiction and budget checks skipped.')
+    if findings:
+        print('\n'.join(findings[:8]))
+        if len(findings) > 8:
+            print(f'{len(findings) - 8} additional static findings omitted.')
+        print(f'Fix {len(findings)} static finding(s), then rerun check_tests.')
+        return 1
+    if over_budget:
+        return 1
+    shared = Path(__file__).resolve().parents[1] / 'shared' / 'check_tests'
+    return runpy.run_path(str(shared))['main']()
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
