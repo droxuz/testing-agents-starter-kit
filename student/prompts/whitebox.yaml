@@ -28,7 +28,7 @@ instance_template: |
 
   1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
   2. For each missed line or branch, find an input that reaches it and write a test for it.
-  3. Run `run_tests` and fix any failing test.
+  3. Run `run_tests --whitebox-only` and fix any failing test.
   4. Repeat until coverage stops improving.
   5. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
 
