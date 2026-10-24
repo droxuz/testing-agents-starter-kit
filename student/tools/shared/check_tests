@@ -64,7 +64,12 @@ def main() -> int:
     if result.returncode not in (0, 5):
         print("\n".join(lines[-30:]))
         problems += 1
-    print("OK" if problems == 0 else f"{problems} problem(s) found.")
+    if problems == 0:
+        print("OK. All tests are valid and ready.")
+        print("Do NOT run pytest. To finish the task and submit your tests now, run:")
+        print("echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT")
+    else:
+        print(f"{problems} problem(s) found.")
     return 0 if problems == 0 else 1
 
 

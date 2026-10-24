@@ -1,47 +1,117 @@
 #!/usr/bin/env python3
-"""dev_bench.py: Single command to run, evaluate, and log the standardized 4-problem benchmark.
+"""dev_bench.py: Rapid-iteration benchmark runner for testing agent development.
+
+By default, runs a fast 4-problem core suite (~45-60s) across 4 workers:
+    lcb-3566 (strings), lcb-3610 (sliding window), lcb-3594 (hash maps), lcb-3607 (greedy/primes).
 
 Usage:
+    python dev_bench.py
     python dev_bench.py --mode whitebox --run exp0-baseline --notes "Starter kit baseline"
-    python dev_bench.py --mode combined --run exp0-combined --notes "Combined baseline"
-    python dev_bench.py --mode both --run exp0-baseline
-    python dev_bench.py --eval-only --run exp0-baseline --mode whitebox
+    python dev_bench.py --mode whitebox --run exp1-boundary --notes "Boundary condition prompt"
+    python dev_bench.py --extended  # Runs full 8-problem benchmark (~2.5m)
+    python dev_bench.py --only lcb-3566
 """
 
 import argparse
 import datetime
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-DEFAULT_PROBLEMS = [
-    "lcb-3610",  # Sliding window / frequency ties (7 bugs, 1 hard mutant)
-    "lcb-3607",  # Greedy / number theory (7 bugs, 9 hard mutants)
-    "lcb-3594",  # Hash map / sum outliers (6 bugs, 3 hard mutants)
+# Ignore OpenRouter cost-tracking discrepancies (e.g. upstream provider reporting cost 0)
+os.environ["MSWEA_COST_TRACKING"] = "ignore_errors"
+
+# 4-problem fast core suite (~1-2m total): fast, high-yield, no reasoning traps (28 bugs, 24 hard mutants)
+CORE_PROBLEMS = [
+    "lcb-3610",  # Sliding window / frequency ties (7 bugs, 1 hard mutant, 15 lines)
+    "lcb-3612",  # Binary search / increasing subarrays (7 bugs, 9 hard mutants, 20 lines)
+    "lcb-3686",  # Prefix array / beautiful splits (8 bugs, 11 hard mutants, 18 lines)
+    "lcb-3594",  # Hash map / sum outliers (6 bugs, 3 hard mutants, 21 lines)
+]
+
+# Full 8-problem extended suite: 56 bugs, 72 hard mutants
+EXTENDED_PROBLEMS = [
+    *CORE_PROBLEMS,
     "lcb-3566",  # String simulation / state machine (5 bugs, 0 hard mutants)
-    "lcb-3686",  # Prefix array / beautiful splits (8 bugs, 11 hard mutants)
     "lcb-3654",  # Dynamic programming / array sum (8 bugs, 15 hard mutants)
-    "lcb-3612",  # Binary search / increasing subarrays (7 bugs, 9 hard mutants)
+    "lcb-3607",  # Greedy / number theory (7 bugs, 9 hard mutants) - slow reasoning model trap
     "lcb-3690",  # Binary search on answer / identical chars (8 bugs, 24 hard mutants)
 ]
+
+DEFAULT_PROBLEMS = CORE_PROBLEMS
 REPO_ROOT = Path(__file__).resolve().parent
 LOG_FILE = REPO_ROOT / "EXPERIMENTS.md"
 RUNS_DIR = REPO_ROOT / "runs"
 
+_active_child_process: subprocess.Popen | None = None
+
+
+def kill_active_process() -> None:
+    """Forcefully terminates the active child process and its entire process tree."""
+    global _active_child_process
+    if _active_child_process is None:
+        return
+    proc = _active_child_process
+    _active_child_process = None
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=5)
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def handle_interrupt(signum=None, frame=None) -> None:
+    """Signal handler for Ctrl+C to abort cleanly without logging to EXPERIMENTS.md."""
+    kill_active_process()
+    print("\n\n[dev_bench] Interrupted by user (Ctrl+C). Aborting immediately without writing to EXPERIMENTS.md.\n", file=sys.stderr)
+    sys.exit(130)
+
+
+# Register interrupt handlers for clean terminal termination on both Windows and Linux
+signal.signal(signal.SIGINT, handle_interrupt)
+if hasattr(signal, "SIGBREAK"):
+    signal.signal(signal.SIGBREAK, handle_interrupt)
+if hasattr(signal, "SIGTERM"):
+    signal.signal(signal.SIGTERM, handle_interrupt)
+
 
 def sync_windows_shims() -> None:
+    """Creates Windows shims for CLI tools and enables Windows POSIX compatibility.
+
+    On Linux or macOS, this function returns immediately and has zero effect.
+    """
     if sys.platform != "win32":
         return
+
     scripts_dir = Path(sys.executable).parent
     tools_root = REPO_ROOT / "student" / "tools"
+
+    # Generate .cmd wrappers for extensionless student tools
     for tool_file in tools_root.rglob("*"):
         if tool_file.is_file() and not tool_file.suffix and not tool_file.name.startswith((".", "_")):
             shim = scripts_dir / f"{tool_file.name}.cmd"
             shim.write_text(f'@"{sys.executable}" "{tool_file.resolve()}" %*\n')
+
+    # Generate python3.cmd wrapper for Windows
+    python3_shim = scripts_dir / "python3.cmd"
+    python3_shim.write_text(f'@"{sys.executable}" %*\n')
+
+    # Install the in-process windows runner patch
+    try:
+        from testagent import windows_compat
+        windows_compat.install()
+    except ImportError:
+        pass
 
 
 def check_api_key() -> None:
@@ -65,10 +135,10 @@ def check_agent_errors(run_name: str, mode: str) -> None:
     except Exception:
         return
     problems = data.get("problems", [])
-    errors = [p for p in problems if p.get("exit_status", "").startswith("Error:")]
+    errors = [p for p in problems if p.get("exit_status", "").startswith("Error:") or p.get("exit_status") == "TokenLimitExceeded"]
     if errors:
         print("\n" + "!" * 72, file=sys.stderr)
-        print(f" [WARNING] {len(errors)} problem(s) failed in mode '{mode}':", file=sys.stderr)
+        print(f" [WARNING] {len(errors)} problem(s) encountered issues in mode '{mode}':", file=sys.stderr)
         for err in errors[:3]:
             print(f"   * {err['problem_id']}: {err['exit_status']}", file=sys.stderr)
         print("!" * 72 + "\n", file=sys.stderr)
@@ -78,11 +148,23 @@ def check_agent_errors(run_name: str, mode: str) -> None:
 
 
 def run_command(cmd: list[str], description: str) -> None:
+    global _active_child_process
     print(f"\n>>> [dev_bench] {description}: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=str(REPO_ROOT))
-    if result.returncode != 0:
-        print(f"Error during {description} (exit code {result.returncode})", file=sys.stderr)
-        sys.exit(result.returncode)
+    print(f"[dev_bench] Streaming agent outputs in real-time...\n", flush=True)
+    try:
+        kwargs = {}
+        if sys.platform != "win32":
+            kwargs["start_new_session"] = True
+        env = os.environ | {"PYTHONUNBUFFERED": "1", "MSWEA_COST_TRACKING": "ignore_errors"}
+        proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), env=env, **kwargs)
+        _active_child_process = proc
+        ret = proc.wait()
+        _active_child_process = None
+        if ret != 0:
+            print(f"Error during {description} (exit code {ret})", file=sys.stderr)
+            sys.exit(ret)
+    except KeyboardInterrupt:
+        handle_interrupt()
 
 
 def extract_results(run_name: str, mode: str) -> dict:
@@ -125,7 +207,7 @@ def extract_results(run_name: str, mode: str) -> dict:
 def format_markdown_entry(data: dict, notes: str) -> str:
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     summary = data["summary"]
-    
+
     bug_rate = f"{summary.get('bug_kill_rate', 0.0) * 100:.1f}% ({data['bugs_killed']}/{data['bugs_total']})"
     hard_score = f"{summary.get('hard_mutation_score', 0.0) * 100:.1f}% ({data['hard_killed']}/{data['hard_total']})"
     path_cov = f"{summary.get('path_coverage', 0.0) * 100:.1f}%" if summary.get("path_coverage") is not None else "N/A"
@@ -180,27 +262,40 @@ def print_console_summary(data: dict) -> None:
     print("=" * 70)
 
 
-def run_benchmark(mode: str, run_name: str, problems: list[str], workers: int, notes: str, eval_only: bool) -> None:
+def run_benchmark(mode: str, run_name: str, problems: list[str], workers: int, notes: str, eval_only: bool, skip_seed: bool = False) -> None:
     sync_windows_shims()
     python_exe = sys.executable
 
     if not eval_only:
         check_api_key()
         # In separate mode, whitebox benefits from blackbox tests existing.
-        # If running whitebox and blackbox tests don't exist yet, run blackbox first.
         if mode == "whitebox":
-            blackbox_exists = all((RUNS_DIR / run_name / "blackbox" / pid / "tests" / "test_blackbox.py").exists() for pid in problems)
-            if not blackbox_exists:
-                print(f"[dev_bench] Seeding blackbox tests for run '{run_name}'...")
-                cmd_bb = [python_exe, "-m", "testagent.run", "--mode", "blackbox", "--run", run_name, "--workers", str(workers), "--only", *problems]
-                run_command(cmd_bb, f"Running black-box pre-requisite for {run_name}")
-                check_agent_errors(run_name, "blackbox")
+            target_bb = RUNS_DIR / run_name / "blackbox"
+            blackbox_exists = all((target_bb / pid / "tests" / "test_blackbox.py").exists() for pid in problems)
 
-        cmd_run = [python_exe, "-m", "testagent.run", "--mode", mode, "--run", run_name, "--workers", str(workers), "--only", *problems]
+            if not blackbox_exists:
+                # Check if a golden baseline exists to inherit fixed blackbox tests from
+                baseline_bb = RUNS_DIR / "exp0-baseline" / "blackbox"
+                can_inherit = all((baseline_bb / pid / "tests" / "test_blackbox.py").exists() for pid in problems)
+
+                if can_inherit:
+                    print(f"[dev_bench] Inheriting seeded black-box tests from 'exp0-baseline' for '{run_name}'...")
+                    for pid in problems:
+                        src = baseline_bb / pid / "tests" / "test_blackbox.py"
+                        dst = target_bb / pid / "tests" / "test_blackbox.py"
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                elif not skip_seed:
+                    print(f"[dev_bench] Seeding blackbox tests for run '{run_name}'...")
+                    cmd_bb = [python_exe, "-u", "-m", "testagent.run", "--mode", "blackbox", "--run", run_name, "--workers", str(workers), "--only", *problems]
+                    run_command(cmd_bb, f"Running black-box pre-requisite for {run_name}")
+                    check_agent_errors(run_name, "blackbox")
+
+        cmd_run = [python_exe, "-u", "-m", "testagent.run", "--mode", mode, "--run", run_name, "--workers", str(workers), "--only", *problems]
         run_command(cmd_run, f"Running agent ({mode}) on {len(problems)} benchmark problems")
         check_agent_errors(run_name, mode)
 
-    cmd_eval = [python_exe, "-m", "testagent.evaluate", "--run", run_name, "--mode", mode, "--only", *problems]
+    cmd_eval = [python_exe, "-u", "-m", "testagent.evaluate", "--run", run_name, "--mode", mode, "--only", *problems]
     run_command(cmd_eval, f"Evaluating {mode} tests on benchmark problems")
 
     results = extract_results(run_name, mode)
@@ -214,17 +309,32 @@ def run_benchmark(mode: str, run_name: str, problems: list[str], workers: int, n
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=["whitebox", "combined", "both"], default="whitebox", help="Mode to run (default: whitebox)")
+    parser.add_argument("--mode", choices=["whitebox", "blackbox", "combined", "both"], default="whitebox", help="Mode to run (default: whitebox)")
     parser.add_argument("--run", default="exp0-baseline", help="Run name identifier (default: exp0-baseline)")
-    parser.add_argument("--workers", type=int, default=8, help="Workers for parallel execution (default: 8)")
-    parser.add_argument("--only", nargs="*", default=DEFAULT_PROBLEMS, help="Problem IDs to run (default: 8-problem benchmark)")
+    parser.add_argument("--workers", type=int, default=None, help="Workers for parallel execution (defaults to number of problems)")
+    parser.add_argument("--only", nargs="*", default=None, help="Problem IDs to run (defaults to 4-problem core suite)")
+    parser.add_argument("--extended", action="store_true", help="Run full 8-problem benchmark instead of the 4-problem core")
     parser.add_argument("--notes", default="Development benchmark run", help="Brief hypothesis or notes to append to EXPERIMENTS.md")
     parser.add_argument("--eval-only", action="store_true", help="Only evaluate existing run and log without re-running agent")
+    parser.add_argument("--skip-seed", action="store_true", help="Skip blackbox seeding when running whitebox mode")
     args = parser.parse_args()
 
-    modes = ["whitebox", "combined"] if args.mode == "both" else [args.mode]
-    for m in modes:
-        run_benchmark(m, args.run, args.only, args.workers, args.notes, args.eval_only)
+    # Determine problems list
+    if args.only:
+        problems = args.only
+    elif args.extended:
+        problems = EXTENDED_PROBLEMS
+    else:
+        problems = CORE_PROBLEMS
+
+    workers = args.workers if args.workers is not None else len(problems)
+
+    try:
+        modes = ["whitebox", "combined"] if args.mode == "both" else [args.mode]
+        for m in modes:
+            run_benchmark(m, args.run, problems, workers, args.notes, args.eval_only, skip_seed=args.skip_seed)
+    except KeyboardInterrupt:
+        handle_interrupt()
 
 
 if __name__ == "__main__":
