@@ -7,31 +7,25 @@ Formal final milestones across all 61 problems should still be recorded in [REPO
 
 ## ⚡ Command Cheatsheet & Workflow Quick-Reference
 
-### 1. Establish the Golden Baseline (Run Once)
-Seeds black-box tests and records the initial starter kit metrics:
+### 1. Standard Dev Iteration (Default: 4 Core Problems, ~1.5–2m across 4 workers)
+Runs the standardized 4-problem core suite (`lcb-3610`, `lcb-3612`, `lcb-3686`, `lcb-3594`) using instant pre-seeded black-box tests:
 ```bash
-python dev_bench.py --run exp0-baseline --notes "Starter kit baseline"
+python dev_bench.py --run exp1-<feature> --notes "Added boundary value prompting"
 ```
 
-### 2. Test a Feature / Prompt Improvement (Standard Workflow)
-Isolates your white-box feature against the fixed black-box seed without stochastic noise:
+### 2. Ultra-Fast Canary Check (~20s on single problem)
+Quickly test if your tool or prompt works without syntax errors before a full benchmark:
 ```bash
-python dev_bench.py --mode whitebox --run exp1-<feature> --skip-seed --notes "Added boundary value prompting"
+python dev_bench.py --canary --run test-canary
 ```
 
-### 3. Ultra-Fast Canary Check (~15s on single problem)
-Quickly test if your tool or prompt works without syntax errors before a full run:
-```bash
-python dev_bench.py --mode whitebox --run test-canary --only lcb-3566 --skip-seed
-```
-
-### 4. Milestone Verification (Full 8-problem extended suite, ~2.5m)
-Verify your changes generalize across all 8 problem domains before committing:
+### 3. Extended Milestone Verification (8 Problems, ~3–4m across 4 workers)
+Run full 8-problem milestone suite to verify broader generalization:
 ```bash
 python dev_bench.py --extended --run exp1-<feature>-extended --notes "Extended suite verification"
 ```
 
-### 5. Check Grading Rule Compliance
+### 4. Check Grading Rule Compliance
 Ensure only allowed files inside `student/` were modified and tools meet requirements:
 ```bash
 python -m testagent.submission student
@@ -41,8 +35,8 @@ python -m testagent.submission student
 
 ## 📋 Benchmark Problem Suites
 
-### Core 4-Problem Suite (Default, fast & robust, ~1–2m across 4 workers)
-Focused rapid-iteration testbed: **28 realistic bugs, 24 subtle mutants**. Zero reasoning traps.
+### Core 4-Problem Suite (Default, ~1.5–2m across 4 workers)
+Balanced, statistically rigorous testbed with **28 realistic bugs, 24 subtle hard mutants, zero reasoning traps**:
 
 | Problem ID | Problem Domain & Focus | Bugs | Hard Mutants | Sol. Lines | Primary Challenge |
 |---|---|:---:|:---:|:---:|---|
@@ -50,19 +44,38 @@ Focused rapid-iteration testbed: **28 realistic bugs, 24 subtle mutants**. Zero 
 | **`lcb-3612`** | Monotonicity / binary search | **7** | **9** | 14 | Strictly increasing subarray detection, boundary interval checks. |
 | **`lcb-3686`** | Prefix arrays / beautiful splits | **8** | **11** | 17 | Partitioning logic, prefix match boundaries, off-by-one indices. |
 | **`lcb-3594`** | Hash map / array arithmetic | **6** | 3 | 21 | Zero sums, negative outliers, identical duplicate values. |
+| **Totals** | **4 Distinct Algorithmic Domains** | **28 bugs** | **24 hard mutants** | — | **Granular bug detection and hard mutant score evaluation.** |
 
-### Extended 8-Problem Suite (`--extended`, ~3m across 8 workers)
-Broader validation testbed: **56 realistic bugs, 72 subtle mutants**.
-
-| Problem ID | Problem Domain & Focus | Bugs | Hard Mutants | Sol. Lines | Primary Challenge |
-|---|---|:---:|:---:|:---:|---|
-| **`lcb-3566`** | String simulation / State machine | **5** | 0 | 12 | State transitions, string boundaries, termination conditions. |
-| **`lcb-3654`** | Dynamic programming / array sum ops | **8** | **15** | 32 | Complex state transitions, division/reduction ordering, knapsack bounds. |
-| **`lcb-3607`** | Greedy / Number theory / Prime ops | **7** | **9** | 23 | Non-decreasing sequence transitions, off-by-one division. |
-| **`lcb-3690`** | Binary search on answer / string flips | **8** | **24** | 26 | Maximum substring of identical characters, parity of flips. |
+### Extended 8-Problem Suite (`--extended`, ~3–4m across 4 workers)
+Broader validation testbed with **56 realistic bugs, 72 subtle mutants**:
+Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-3607` (greedy/primes), and `lcb-3690` (binary search flips).
 
 ---
 
 ## 🔬 Experiments & Run History
 
 *(New runs executed via python dev_bench.py will append here automatically).
+
+### Experiment: `exp0-baseline` (whitebox)
+- **Timestamp:** 2026-10-24 19:42:09
+- **Notes / Hypothesis:** Starter kit baseline (4-problem core dev suite)
+- **Cost / Tokens:** $0.0463 | 445,222 tokens
+- **Total Function Calls Used:** 134
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **81.5% (23/28)** | Primary Goal |
+| **Hard-Mutant Score** | **64.6% (14/24)** | High-Yield Mutants |
+| **Path Coverage** | 95.8% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 94.9% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 21 | 0 | 5/6 | 1/3 | 21 | 100.0% |
+| `lcb-3610` | 25 | 1 | 5/7 | 1/1 | 26 | 100.0% |
+| `lcb-3612` | 48 | 6 | 5/7 | 8/9 | 50 | 100.0% |
+| `lcb-3686` | 37 | 0 | 8/8 | 4/11 | 37 | 100.0% |
+
+---
