@@ -60,7 +60,7 @@ def describe(mode: str, workspace: Path, tools_root: Path = TOOLS_ROOT) -> str:
     for tool in discover(mode, tools_root):
         try:
             result = subprocess.run(
-                [str(tool), "--help"], cwd=workspace, env=env, capture_output=True, text=True, timeout=20
+                [sys.executable, str(tool), "--help"] if sys.platform == "win32" else [str(tool), "--help"], cwd=workspace, env=env, capture_output=True, text=True, timeout=20
             )
             text = (result.stdout or result.stderr).strip()
         except (OSError, subprocess.TimeoutExpired) as error:

@@ -108,7 +108,7 @@ def check_tools(folder: Path) -> list[str]:
                 errors.append(f"{path}: missing shebang line")
             try:
                 result = subprocess.run(
-                    [str(path), "--help"], capture_output=True, text=True, timeout=20,
+                    [sys.executable, str(path), "--help"] if sys.platform == "win32" else [str(path), "--help"], capture_output=True, text=True, timeout=20,
                     env=os.environ | toolbox.environment(sub, tools_root),
                 )
                 if result.returncode != 0 or not (result.stdout or result.stderr).strip():
