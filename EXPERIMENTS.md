@@ -127,3 +127,29 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3686` | 19 | 0 | 8/8 | 4/11 | 19 | 100.0% |
 
 ---
+
+### Experiment: `exp3-oracles` (whitebox)
+- **Timestamp:** 2026-10-24 22:45:12
+- **Notes / Hypothesis:** Phase 3: fix_oracles in-place alignment
+- **Cost / Tokens:** $0.0458 | 448,723 tokens
+- **Total Function Calls Used:** 124
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **82.1% (23/28)** | Primary Goal |
+| **Hard-Mutant Score** | **64.6% (14/24)** | High-Yield Mutants |
+| **Path Coverage** | 97.4% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 95.2% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 26 | 0 | 6/6 | 1/3 | 26 | 100.0% |
+| `lcb-3610` | 25 | 1 | 3/7 | 1/1 | 26 | 100.0% |
+| `lcb-3612` | 35 | 5 | 6/7 | 8/9 | 40 | 100.0% |
+| `lcb-3686` | 32 | 0 | 8/8 | 4/11 | 32 | 100.0% |
+
+> **Note / Footnote:** No significant metric improvement was expected on this 4-problem dev benchmark suite because whitebox tests for these 4 problems already had zero wrong oracles (the 6 remaining wrong oracles in the table are inherited from the pre-seeded blackbox tests). However, `fix_oracles` is expected to make a measurable difference on the full 61-problem benchmark suite, specifically on the key problems where wrong oracles are prevalent (which accounted for 31+ discarded whitebox tests in the baseline run).
+
+---
