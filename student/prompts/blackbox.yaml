@@ -30,7 +30,8 @@ instance_template: |
   3. Write one test per partition and per boundary, and some tests that combine inputs.
   4. Work out each expected value by hand from the specification before writing it.
   5. Check the file with `check_tests`.
-  6. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+  6. DO NOT run `pytest`: `solution.py` is only a stub raising NotImplementedError, so pytest will always fail. Validate your test syntax and structure exclusively using `check_tests`.
+  7. As soon as `check_tests` reports OK, immediately run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command to finish.
 
   ## Tools
 

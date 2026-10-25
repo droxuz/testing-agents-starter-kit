@@ -1,71 +1,212 @@
 #!/usr/bin/env python3
-"""check_tests: check that the test files in ./tests are valid without running them.
-
+"""check_tests: validate test files in tests/ before submission.
 Usage: check_tests
-
-Reports syntax errors, collection errors, the number of collected tests, test functions
-that contain no assertion, and anything that makes the evaluator reject a file (for
-example importing os or inspect, calling open, or mentioning solution.py).
+Checks syntax, assertions, smells, and 50-call budget.
+Exit code 0 means tests are ready.
 """
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-from testagent.evaluate import source_access
+# Ensure REPO_ROOT is in sys.path so testagent is importable regardless of CWD
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+FORBIDDEN_MODULES = {
+    "inspect", "os", "io", "pathlib", "importlib", "linecache", "dis", "subprocess",
+    "shutil", "glob", "marshal", "ast", "tokenize", "pkgutil", "runpy",
+}
+FORBIDDEN_NAMES = {"open", "exec", "eval", "compile", "globals", "vars", "__import__", "breakpoint"}
+FORBIDDEN_ATTRS = {
+    "__code__", "__file__", "__globals__", "__dict__", "__loader__", "__spec__", "modules",
+    "getsource", "getsourcelines", "read_text", "read_bytes",
+}
+
+try:
+    from testagent.evaluate import smells as eval_smells, source_access as eval_source_access
+except Exception:
+    eval_smells = None
+    eval_source_access = None
+
+
+def check_source_access(path: Path, tree: ast.AST) -> list[str]:
+    """Find reasons evaluator will reject this test file."""
+    reasons = []
+    if eval_source_access is not None:
+        eval_reason = eval_source_access(path)
+        if eval_reason:
+            reasons.append(eval_reason)
+            return reasons
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            names = {(node.module or "").split(".")[0]}
+        else:
+            names = set()
+        hit = names & FORBIDDEN_MODULES
+        if hit:
+            reasons.append(f"imports {sorted(hit)[0]}")
+            break
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            reasons.append(f"uses {node.id}")
+            break
+        if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_ATTRS:
+            reasons.append(f"uses .{node.attr}")
+            break
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and "solution.py" in node.value:
+            reasons.append("mentions solution.py")
+            break
+    return reasons
 
 
 def has_assertion(func: ast.AST) -> bool:
-    """True if the function contains an assert, pytest.raises or an assert* call."""
+    """True if the function contains an assert, pytest.raises or an assert* call / pytest.fail."""
     for node in ast.walk(func):
         if isinstance(node, ast.Assert):
             return True
         if isinstance(node, ast.With) and any("raises" in ast.unparse(i.context_expr) for i in node.items):
             return True
-        if isinstance(node, ast.Call) and "assert" in ast.unparse(node.func):
-            return True
+        if isinstance(node, ast.Call):
+            name = ast.unparse(node.func)
+            if "assert" in name or name.endswith("fail"):
+                return True
     return False
+
+
+def count_solution_calls(path: Path) -> int:
+    """Estimate solution function calls in a test file."""
+    if not path.exists():
+        return 0
+    try:
+        tree = ast.parse(path.read_text())
+    except SyntaxError:
+        return 0
+
+    module_sol_vars = {"solution", "sol", "s"}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            if isinstance(stmt.value, ast.Call) and getattr(stmt.value.func, "id", None) == "Solution":
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        module_sol_vars.add(target.id)
+
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            sol_vars = set(module_sol_vars)
+            for stmt in ast.walk(node):
+                if isinstance(stmt, ast.Assign):
+                    if isinstance(stmt.value, ast.Call) and getattr(stmt.value.func, "id", None) == "Solution":
+                        for target in stmt.targets:
+                            if isinstance(target, ast.Name):
+                                sol_vars.add(target.id)
+            calls = sum(
+                1 for n in ast.walk(node)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and (
+                    (isinstance(n.func.value, ast.Call) and getattr(n.func.value.func, "id", None) == "Solution")
+                    or (isinstance(n.func.value, ast.Name) and n.func.value.id in sol_vars)
+                )
+            )
+            count += max(calls, 1)
+    return count
 
 
 def main() -> int:
     if "--help" in sys.argv[1:]:
         print(__doc__.strip())
         return 0
+
     files = sorted(Path("tests").glob("test_*.py"))
     if not files:
-        print("No test files found in ./tests (expected tests/test_*.py).")
+        print("ERROR: No test files found in tests/ (expected tests/test_*.py).")
         return 1
+
     problems = 0
+    seen_bodies = {}
+
+    # 1. Syntax, rejection, assertion, and smell checks per file
     for path in files:
         try:
             tree = ast.parse(path.read_text())
         except SyntaxError as error:
-            print(f"{path}: syntax error on line {error.lineno}: {error.msg}")
+            print(f"ERROR {path}:{error.lineno}: Syntax error: {error.msg}")
             problems += 1
             continue
-        reason = source_access(path)
-        if reason:
-            print(f"{path}: the evaluator will reject this whole file because it {reason}")
+
+        reasons = check_source_access(path, tree)
+        for reason in reasons:
+            print(f"CRITICAL REJECT: {path} will be rejected by evaluator: {reason}.")
+            print("Action: Remove forbidden modules/names or remove any string literal containing 'solution.py'.")
             problems += 1
+
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name.startswith("test") and not has_assertion(node):
-                print(f"{path}::{node.name} has no assertion")
-                problems += 1
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                if not has_assertion(node):
+                    print(f"ERROR {path}::{node.name}: Missing assertion. Add an assert statement.")
+                    problems += 1
+
+                for inner in ast.walk(node):
+                    if isinstance(inner, ast.Assert) and isinstance(inner.test, ast.Constant):
+                        val = repr(inner.test.value)
+                        print(f"ERROR {path}::{node.name} (line {inner.lineno}): Constant assertion 'assert {val}' found. Replace with real assertion.")
+                        problems += 1
+                    if isinstance(inner, ast.With) and any(
+                        ast.unparse(item.context_expr).replace(" ", "").endswith("raises(Exception)")
+                        for item in inner.items
+                    ):
+                        print(f"WARNING {path}::{node.name} (line {inner.lineno}): Broad exception 'raises(Exception)' found. Specify exact exception.")
+
+                body = ast.dump(ast.Module(body=node.body, type_ignores=[]))
+                if body in seen_bodies:
+                    orig_path, orig_name = seen_bodies[body]
+                    print(f"ERROR {path}::{node.name}: Duplicate test body identical to {orig_path}::{orig_name}. Delete duplicate test.")
+                    problems += 1
+                else:
+                    seen_bodies[body] = (path, node.name)
+
+    # Cross-check with testagent evaluator smells if available
+    if eval_smells is not None:
+        smell_counts = eval_smells(files)
+        # Informational summary if smells were detected
+        if smell_counts.get("constant_assertion", 0) > 0 or smell_counts.get("duplicate_test", 0) > 0:
+            print(f"Smell summary: {smell_counts['constant_assertion']} constant assertion(s), {smell_counts['duplicate_test']} duplicate test(s).")
+
+    # 2. Call budget estimate (50 calls total across all test files)
+    call_counts = {p: count_solution_calls(p) for p in files}
+    total_calls = sum(call_counts.values())
+    breakdown = ", ".join(f"{p.name} ~{cnt} calls" for p, cnt in call_counts.items())
+    print(f"Budget estimate: {breakdown} (Total: {total_calls}/50).")
+    if total_calls > 50:
+        print(f"WARNING: Exceeding 50-call budget by ~{total_calls - 50} calls! Tests past call 50 are dropped by evaluator.")
+        print("Action: Move your most critical boundary tests to the TOP of your test file and prune redundant tests.")
+
+    # 3. Pytest collection check
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "tests"],
         capture_output=True,
         text=True,
         timeout=120,
     )
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    collected = [line for line in lines if "::" in line]
-    print(f"Collected {len(collected)} tests.")
+    combined = (result.stdout + "\n" + result.stderr).strip()
+    lines = [line for line in combined.splitlines() if line.strip()]
     if result.returncode not in (0, 5):
-        print("\n".join(lines[-30:]))
+        print("ERROR: Pytest collection failed:\n" + "\n".join(lines[-15:]))
         problems += 1
-    print("OK" if problems == 0 else f"{problems} problem(s) found.")
-    return 0 if problems == 0 else 1
+
+    if problems == 0:
+        print("OK. All checks passed.")
+        return 0
+    else:
+        print(f"FAILED: {problems} issue(s) must be fixed before submission.")
+        return 1
 
 
 if __name__ == "__main__":
