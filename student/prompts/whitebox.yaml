@@ -31,12 +31,11 @@ instance_template: |
   1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
   2. For each missed line or branch, find an input that reaches it and write a test in `{{test_file}}`.
   3. Run `run_tests --whitebox-only` and fix any failing test.
-  4. Run `coverage_report`. Proceed to submission when:
-     - Branch coverage reaches 100% (or was already 100%), OR
-     - Two attempts in a row fail to improve coverage.
+  4. Run `coverage_report`. When branch coverage reaches 100% (or was already 100%), or when two attempts in a row fail to improve coverage, proceed to step 5.
      Do NOT keep running calculations or adding speculative tests once either condition is met.
-  5. Run `check_tests`. If any issues or budget warnings are reported, fix them. If calls exceed {{max_calls}}, move your most critical boundary tests to the top of `{{test_file}}` and prune redundant tests.
-  6. When `check_tests` reports OK, complete the task by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+  5. Run `fix_oracles` to automatically align assertion values with `solution.py`.
+  6. Run `check_tests`. If any issues or budget warnings are reported, fix them. If calls exceed {{max_calls}}, move your most critical boundary tests to the top of `{{test_file}}` and prune redundant tests.
+  7. When `check_tests` reports OK, complete the task by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
 
   ## Tools
 
