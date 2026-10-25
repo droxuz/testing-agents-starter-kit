@@ -177,3 +177,27 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 
 ---
 
+
+### Experiment: `exp5-bva-loop` (whitebox)
+- **Timestamp:** 2026-10-25 17:23:41
+- **Notes / Hypothesis:** BVA mutant-site language and 2-iter loop BVA
+- **Cost / Tokens:** $0.0503 | 494,552 tokens
+- **Total Function Calls Used:** 149
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **78.6% (22/28)** | Primary Goal |
+| **Hard-Mutant Score** | **59.1% (16/24)** | High-Yield Mutants |
+| **Path Coverage** | 98.7% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 96.0% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 39 | 0 | 6/6 | 3/3 | 39 | 100.0% |
+| `lcb-3610` | 28 | 1 | 3/7 | 0/1 | 29 | 100.0% |
+| `lcb-3612` | 33 | 5 | 5/7 | 9/9 | 38 | 100.0% |
+| `lcb-3686` | 43 | 0 | 8/8 | 4/11 | 43 | 100.0% |
+
+---

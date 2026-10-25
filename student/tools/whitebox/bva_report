@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""bva_report: inspect solution.py for relational comparisons and boundary constants.
+"""bva_report: inspect solution.py for relational mutant sites, structural extremes, and loop 2-iter targets.
 Usage: bva_report
-Expected output:
-- Relational targets: Line number, comparison, and tests for equality (L == R) & off-by-one (L = R +- 1)
-- Structural targets: Minimal container sizes (len=1, 2) and homogeneous arrays ([v, v, ...])"""
+Sections: (1) relational MUTANT SITES, (2) structural extremes, (3) loop TWO-ITER & EARLY-EXIT targets."""
 
 import ast
 import sys
@@ -23,6 +21,18 @@ OP_SWAP = {
     "Is": "is not",
     "IsNot": "is",
 }
+
+
+def has_early_exit(loop_node: ast.AST) -> bool:
+    nodes = list(loop_node.body + getattr(loop_node, "orelse", []))
+    while nodes:
+        curr = nodes.pop(0)
+        if isinstance(curr, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if isinstance(curr, (ast.Return, ast.Break)):
+            return True
+        nodes.extend(ast.iter_child_nodes(curr))
+    return False
 
 
 def main() -> int:
@@ -48,6 +58,8 @@ def main() -> int:
     seen_comps = set()
     constants = []
     seen_consts = set()
+    loops = []
+    seen_loops = set()
 
     for node in ast.walk(tree):
         # 1. Relational comparisons (<, <=, >, >=, ==, !=, in, not in, is, is not)
@@ -83,27 +95,45 @@ def main() -> int:
                 seen_consts.add(val)
                 constants.append(val)
 
-    comparisons.sort(key=lambda x: (x[0], x[1]))
+        # 3. Loops (for / while)
+        elif isinstance(node, (ast.For, ast.While)) and hasattr(node, "lineno"):
+            key = (node.lineno, getattr(node, "col_offset", 0))
+            if key not in seen_loops:
+                seen_loops.add(key)
+                loops.append(node)
 
-    print("=== 1. RELATIONAL COMPARISON TARGETS (TIES & OFF-BY-ONES) ===")
+    comparisons.sort(key=lambda x: (x[0], x[1]))
+    loops.sort(key=lambda n: (n.lineno, getattr(n, "col_offset", 0)))
+
+    print("=== 1. RELATIONAL COMPARISON TARGETS (MUTANT SITES) ===")
     if comparisons:
         for lineno, col, line_text, left, op_name, right in comparisons:
             swap = OP_SWAP.get(op_name, "swap")
             if op_name in RELATIONAL_OPS:
                 op_sym = RELATIONAL_OPS[op_name]
                 print(f"Line {lineno}: {line_text}")
-                print(f"  * TIE TARGET: Test equality ({left} == {right}). Kills '{op_sym}' -> '{swap}' mutant.")
-                print(f"  * OFF-BY-ONE: Test adjacent values ({left} adjacent to {right}).\n")
+                print(f'  MUTANT SITE: "{left} {op_sym} {right}" vs "{left} {swap} {right}"')
+                print(f"  -> EXACT-TIE:   Make {left} == {right} — the ONLY input that distinguishes {op_sym} from {swap}.")
+                if op_name in ("Lt", "LtE"):
+                    print(f"  -> JUST-BELOW:  Make {left} = {right} - 1 — both operators agree, confirms base behaviour.\n")
+                else:
+                    print(f"  -> JUST-ABOVE:  Make {left} = {right} + 1 — both operators agree, confirms base behaviour.\n")
             elif op_name in ("Eq", "NotEq"):
+                op_sym = EQUALITY_OPS[op_name]
                 print(f"Line {lineno}: {line_text}")
-                print(f"  * EQUALITY: Test equal case ({left} == {right}).")
-                print(f"  * INEQUALITY: Test not equal case ({left} != {right}).\n")
+                print(f'  MUTANT SITE: "{left} {op_sym} {right}" vs "{left} {swap} {right}"')
+                print(f"  -> EQUALITY:   Test equal case ({left} == {right}).")
+                print(f"  -> INEQUALITY: Test not equal case ({left} != {right}).\n")
             elif op_name in ("In", "NotIn"):
+                op_sym = EQUALITY_OPS[op_name]
                 print(f"Line {lineno}: {line_text}")
-                print(f"  * MEMBERSHIP: Test item present ({left} in {right}) and absent ({left} not in {right}).\n")
+                print(f'  MUTANT SITE: "{left} {op_sym} {right}" vs "{left} {swap} {right}"')
+                print(f"  -> MEMBERSHIP: Test item present ({left} in {right}) and absent ({left} not in {right}).\n")
             elif op_name in ("Is", "IsNot"):
+                op_sym = EQUALITY_OPS[op_name]
                 print(f"Line {lineno}: {line_text}")
-                print(f"  * IDENTITY: Test {left} is {right} and {left} is not {right}.\n")
+                print(f'  MUTANT SITE: "{left} {op_sym} {right}" vs "{left} {swap} {right}"')
+                print(f"  -> IDENTITY:   Test {left} is {right} and {left} is not {right}.\n")
     else:
         print("No explicit relational comparisons found.\n")
 
@@ -112,7 +142,28 @@ def main() -> int:
     print("  * Homogeneous Tie Input: Test container with all identical elements [v, v, v, ...] (kills tie-breaker mutants).")
     if 0 in seen_consts or -1 in seen_consts:
         print("  * Numeric Extremes: Test with 0, negative values (-1), or duplicate maximum elements.")
-    print("\nAction: Add 3–5 high-potency boundary tests to tests/test_whitebox.py near the TOP, then run fix_oracles.")
+    print()
+
+    print("=== 3. LOOP BVA TARGETS ===")
+    if loops:
+        for loop in loops:
+            loop_type = "For" if isinstance(loop, ast.For) else "While"
+            line_text = lines[loop.lineno - 1].strip() if 0 <= loop.lineno - 1 < len(lines) else ""
+            print(f"Line {loop.lineno} [{loop_type}]: {line_text}")
+            print("  * TWO-ITER: Write a test where this loop executes exactly 2 times.")
+            print("    => Kills off-by-one mutants on the loop bound.")
+            if has_early_exit(loop):
+                print("  * EARLY-EXIT: Write a test where the loop exits early (return/break triggers before completion).")
+                print("    => Kills mutants that remove or misplace the early-exit condition.")
+                print("  * FULL-SCAN:  Write a test where the loop runs to completion without early exit.")
+                print("    => Kills mutants that always trigger early exit.")
+            print()
+    else:
+        print("No loops found.\n")
+
+    print("Action: For each MUTANT SITE write the EXACT-TIE test first — it is the only input")
+    print("that kills the operator mutation. For each loop, write the TWO-ITER test and any")
+    print("EARLY-EXIT / FULL-SCAN tests. Place all new tests near the TOP of the test file.")
     return 0
 
 
