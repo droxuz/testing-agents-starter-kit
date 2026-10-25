@@ -21,6 +21,8 @@ instance_template: |
   - Do not read or modify files outside this folder.
   - Do not import os, inspect, pathlib or similar modules in tests, and do not open files.
   - NEVER write the string "solution.py" anywhere inside `{{test_file}}` (including docstrings or comments): the evaluator automatically rejects any test file containing this text.
+  - NEVER write constant assertions like `assert True`.
+  - Avoid duplicate tests to conserve your {{max_calls}}-call budget.
   - Only the first {{max_calls}} calls to the function are measured, counted in file order. Put the most
     important tests first.
 
@@ -29,11 +31,12 @@ instance_template: |
   1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
   2. For each missed line or branch, find an input that reaches it and write a test in `{{test_file}}`.
   3. Run `run_tests --whitebox-only` and fix any failing test.
-  4. Run `coverage_report`. STOP immediately and proceed to submission if:
+  4. Run `coverage_report`. Proceed to submission when:
      - Branch coverage reaches 100% (or was already 100%), OR
      - Two attempts in a row fail to improve coverage.
      Do NOT keep running calculations or adding speculative tests once either condition is met.
-  5. Immediately complete the task by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+  5. Run `check_tests`. If any issues or budget warnings are reported, fix them. If calls exceed {{max_calls}}, move your most critical boundary tests to the top of `{{test_file}}` and prune redundant tests.
+  6. When `check_tests` reports OK, complete the task by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
 
   ## Tools
 
