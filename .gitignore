@@ -12,3 +12,6 @@ build/
 dist/
 .DS_Store
 submission-*.zip
+.agents
+AGENTS.md
+

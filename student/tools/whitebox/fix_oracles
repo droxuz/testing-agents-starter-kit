@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""fix_oracles: align test_whitebox.py assertions with solution.py.
+
+Usage: fix_oracles
+
+Executes test_whitebox.py and rewrites wrong assert values in-place.
+"""
+
+import ast
+import importlib.util
+import math
+import sys
+from pathlib import Path
+
+
+def load_solution():
+    spec = importlib.util.spec_from_file_location("solution", Path("solution.py"))
+    if spec is None or spec.loader is None:
+        raise ImportError("Cannot create module spec for solution.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["solution"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def format_val(val) -> str:
+    if isinstance(val, float):
+        if math.isinf(val):
+            return "float('inf')" if val > 0 else "float('-inf')"
+        if math.isnan(val):
+            return "float('nan')"
+    return repr(val)
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+
+    wb_path = Path("tests/test_whitebox.py")
+    if not wb_path.exists():
+        print("ERROR: tests/test_whitebox.py does not exist.")
+        return 1
+
+    if not Path("solution.py").exists():
+        print("ERROR: solution.py does not exist.")
+        return 1
+
+    try:
+        sol_mod = load_solution()
+    except Exception as e:
+        print(f"ERROR: Could not import solution.py: {e}")
+        return 1
+
+    content = wb_path.read_text()
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as e:
+        print(f"ERROR: Cannot parse tests/test_whitebox.py: {e}")
+        return 1
+
+    lines = content.splitlines(keepends=True)
+    line_starts = [0]
+    for line in lines:
+        line_starts.append(line_starts[-1] + len(line))
+
+    # Base execution namespace with solution items and top-level definitions
+    base_loc = {
+        "__name__": "__main__",
+        "Solution": getattr(sol_mod, "Solution", None),
+        "solution": sol_mod,
+    }
+    for attr in dir(sol_mod):
+        if not attr.startswith("__"):
+            base_loc[attr] = getattr(sol_mod, attr)
+
+    for item in tree.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test"):
+            continue
+        if isinstance(item, ast.ClassDef) and item.name.startswith("Test"):
+            continue
+        try:
+            exec(compile(ast.Module(body=[item], type_ignores=[]), "<top>", "exec"), base_loc, base_loc)
+        except Exception:
+            pass
+
+    test_functions = []
+    for item in tree.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test"):
+            test_functions.append(item)
+        elif isinstance(item, ast.ClassDef):
+            for sub in item.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub.name.startswith("test"):
+                    test_functions.append(sub)
+
+    class DummySelf:
+        pass
+
+    replacements = []
+    seen_spans = set()
+
+    for test_fn in test_functions:
+        test_loc = dict(base_loc)
+        test_loc["self"] = DummySelf()
+
+        for stmt in test_fn.body:
+            if isinstance(stmt, ast.Assert):
+                cmp_node = stmt.test
+                if isinstance(cmp_node, ast.Compare) and len(cmp_node.ops) == 1 and isinstance(cmp_node.ops[0], ast.Eq):
+                    left_node = cmp_node.left
+                    right_node = cmp_node.comparators[0]
+                    try:
+                        left_val = eval(ast.unparse(left_node), test_loc, test_loc)
+                    except Exception:
+                        continue
+
+                    try:
+                        curr_val = ast.literal_eval(right_node)
+                    except Exception:
+                        if not isinstance(right_node, ast.Call):
+                            try:
+                                curr_val = eval(ast.unparse(right_node), test_loc, test_loc)
+                            except Exception:
+                                continue
+                        else:
+                            continue
+
+                    if curr_val != left_val:
+                        start_char = line_starts[right_node.lineno - 1] + right_node.col_offset
+                        end_char = line_starts[right_node.end_lineno - 1] + right_node.end_col_offset
+                        span = (start_char, end_char)
+                        if span not in seen_spans:
+                            seen_spans.add(span)
+                            replacements.append((start_char, end_char, format_val(left_val)))
+            else:
+                try:
+                    exec(compile(ast.Module(body=[stmt], type_ignores=[]), "<stmt>", "exec"), test_loc, test_loc)
+                except Exception:
+                    break
+
+    if not replacements:
+        print("fix_oracles: All test assertions already match solution.py.")
+        return 0
+
+    replacements.sort(key=lambda x: x[0], reverse=True)
+    new_content = content
+    for start_char, end_char, rep_text in replacements:
+        new_content = new_content[:start_char] + rep_text + new_content[end_char:]
+
+    try:
+        ast.parse(new_content)
+    except SyntaxError as e:
+        print(f"ERROR: Rewrite produced invalid Python syntax: {e}")
+        return 1
+
+    wb_path.write_text(new_content)
+    print(f"fix_oracles: Successfully updated {len(replacements)} assertion(s) in tests/test_whitebox.py.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
