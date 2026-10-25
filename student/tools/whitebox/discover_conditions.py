@@ -30,8 +30,7 @@ def conditions(node, rows, guard=""):
         operands = [node.left, *node.comparators]
         parts = []
         for i, symbol in enumerate(node.ops):
-            comparison = ast.Compare(left=operands[i], ops=[symbol],
-                                     comparators=[operands[i + 1]])
+            comparison = ast.Compare(left=operands[i], ops=[symbol], comparators=[operands[i + 1]])
             rows.append((ast.unparse(comparison), guard))
             part = f"C{len(rows)}"
             parts.append(part)
