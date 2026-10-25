@@ -225,3 +225,31 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3686` | 38 | 0 | 8/8 | 4/11 | 38 | 100.0% |
 
 ---
+
+### Experiment: `exp7-final-extended` (whitebox)
+- **Timestamp:** 2026-10-25 18:15:40
+- **Notes / Hypothesis:** Extended 8-problem suite after BVA and MCDC enhancements
+- **Cost / Tokens:** $0.1085 | 1,056,120 tokens
+- **Total Function Calls Used:** 339
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **74.3% (41/56)** | Primary Goal |
+| **Hard-Mutant Score** | **81.5% (54/72)** | High-Yield Mutants |
+| **Path Coverage** | 97.6% | Branch/Path Exhaustion |
+| **Branch Coverage** | 98.8% | Structural Coverage |
+| **Oracle Precision** | 87.0% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3566` | 16 | 20 | 5/5 | 0/0 | 36 | 100.0% |
+| `lcb-3594` | 27 | 7 | 5/6 | 3/3 | 34 | 90.0% |
+| `lcb-3607` | 36 | 9 | 5/7 | 9/9 | 49 | 100.0% |
+| `lcb-3610` | 34 | 3 | 4/7 | 1/1 | 37 | 100.0% |
+| `lcb-3612` | 34 | 5 | 4/7 | 9/9 | 39 | 100.0% |
+| `lcb-3654` | 44 | 3 | 5/8 | 7/15 | 47 | 100.0% |
+| `lcb-3686` | 47 | 0 | 8/8 | 4/11 | 47 | 100.0% |
+| `lcb-3690` | 142 | 10 | 5/8 | 21/24 | 50 | 100.0% |
+
+---
