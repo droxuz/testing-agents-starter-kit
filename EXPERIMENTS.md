@@ -201,3 +201,27 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3686` | 43 | 0 | 8/8 | 4/11 | 43 | 100.0% |
 
 ---
+
+### Experiment: `exp6-mcdc` (whitebox)
+- **Timestamp:** 2026-10-25 17:43:09
+- **Notes / Hypothesis:** Standalone mcdc_report tool and whitebox pipeline integration
+- **Cost / Tokens:** $0.0465 | 450,046 tokens
+- **Total Function Calls Used:** 151
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **89.3% (25/28)** | Primary Goal |
+| **Hard-Mutant Score** | **84.1% (17/24)** | High-Yield Mutants |
+| **Path Coverage** | 93.2% | Branch/Path Exhaustion |
+| **Branch Coverage** | 97.5% | Structural Coverage |
+| **Oracle Precision** | 94.0% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 38 | 3 | 6/6 | 3/3 | 41 | 90.0% |
+| `lcb-3610` | 34 | 1 | 5/7 | 1/1 | 35 | 100.0% |
+| `lcb-3612` | 32 | 5 | 6/7 | 9/9 | 37 | 100.0% |
+| `lcb-3686` | 38 | 0 | 8/8 | 4/11 | 38 | 100.0% |
+
+---

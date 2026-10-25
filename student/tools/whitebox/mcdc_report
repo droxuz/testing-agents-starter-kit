@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""mcdc_report: inspect solution.py for compound boolean conditions (and/or) and
+emit pairwise MC/DC test scenarios — one scenario per sub-condition.
+Usage: mcdc_report
+For each and/or condition: one test where all sub-conditions are at their neutral value,
+then one test per sub-condition where only that sub-condition flips the decision.
+Use fix_oracles after writing tests — expected values are filled in automatically."""
+
+import ast
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+
+    sol_path = Path("solution.py")
+    if not sol_path.exists():
+        print("ERROR: solution.py not found.")
+        return 1
+
+    src = sol_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        print(f"ERROR: Cannot parse solution.py: {e}")
+        return 1
+
+    lines = src.splitlines()
+    seen = set()
+    boolops = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BoolOp) and hasattr(node, "lineno"):
+            key = (node.lineno, ast.unparse(node))
+            if key not in seen:
+                seen.add(key)
+                boolops.append(node)
+
+    if not boolops:
+        print("No compound boolean conditions (and/or) found. No MC/DC tests needed.")
+        return 0
+
+    print("=== MC/DC INTERACTION TARGETS ===")
+    print("Write one test per scenario below. Use fix_oracles to fill expected values.\n")
+
+    for node in sorted(boolops, key=lambda n: n.lineno):
+        op_name = type(node.op).__name__   # "And" or "Or"
+        line_text = lines[node.lineno - 1].strip() if 0 <= node.lineno - 1 < len(lines) else ""
+        operands = [ast.unparse(v) for v in node.values]
+        neutral = "True" if op_name == "And" else "False"
+        flip = "False" if op_name == "And" else "True"
+        decision_neutral = "True" if op_name == "And" else "False"
+        decision_flip = "False" if op_name == "And" else "True"
+        scenario_label = "ALL-PASS" if op_name == "And" else "ALL-FAIL"
+
+        print(f"Line {node.lineno}: {line_text}")
+        print(f"  Compound [{op_name}] — {len(operands)} sub-conditions."
+              f" Pairwise MC/DC (vary one at a time, hold others at neutral={neutral}):")
+
+        # Baseline: all neutral
+        join_op = "  AND  " if op_name == "And" else "  OR  "
+        neutral_row = join_op.join(f"[{op}]={neutral}" for op in operands)
+        print(f"  * {scenario_label}: {neutral_row}  -> decision = {decision_neutral}")
+
+        # Each sub-condition flips
+        for i, op_expr in enumerate(operands):
+            row_parts = []
+            for j, op in enumerate(operands):
+                val = flip if j == i else neutral
+                row_parts.append(f"[{op}]={val}")
+            row = join_op.join(row_parts)
+            label = f"ONLY-C{i+1}-{'FAILS' if op_name == 'And' else 'PASSES'}"
+            print(f"  * {label}: {row}  -> decision = {decision_flip}")
+            print(f"    => Kills mutations that weaken/drop sub-condition #{i+1} (\"{op_expr}\").")
+        print()
+
+    print("Action: Write one test per scenario above. Place them near the TOP of the test file.")
+    print("Run fix_oracles immediately after — do not try to compute expected values by hand.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

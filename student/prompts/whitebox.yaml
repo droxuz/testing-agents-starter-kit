@@ -33,22 +33,23 @@ instance_template: |
 
   ### Phase 2: Relational Boundaries & Constant Extremes
   5. Run `bva_report`.
-  6. For each reported comparison and boundary target:
-     - Write tests for EQUALITY / TIE cases (e.g. left == right).
-     - Write tests for OFF-BY-ONE boundaries (e.g. left is adjacent to right).
-     - Write tests for STRUCTURAL EXTREMES (minimal size len=1, 2, and all-identical elements [v, v, v]).
-     - Add these tests to `{{test_file}}`. Place high-potency boundary tests near the TOP.
-  7. Verify with `run_tests --whitebox-only`.
+  6. Act on every section in `bva_report` output. Write the EXACT-TIE test first for
+     every MUTANT SITE — it is the only input that kills the operator mutation.
+     Add all tests near the TOP of `{{test_file}}`.
+  7. Run `mcdc_report`.
+  8. For each MC/DC scenario listed, write one test. Do not compute expected values by hand —
+     run fix_oracles in Phase 3 to fill them in automatically.
+  9. Verify with `run_tests --whitebox-only`.
 
   ### Phase 3: Automated Oracle Alignment
-  8. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
+  10. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
      eliminating wrong-oracle test penalties.
 
   ### Phase 4: Budget & Submission Gate
-  9. Run `check_tests`.
+  11. Run `check_tests`.
      - If any errors or budget warnings appear, fix them.
      - If calls exceed {{max_calls}}, prune redundant tests from the bottom of `{{test_file}}`.
-  10. When `check_tests` reports OK, complete the task by running:
+  12. When `check_tests` reports OK, complete the task by running:
       `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
 
   ## Tools Available
