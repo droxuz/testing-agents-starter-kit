@@ -277,3 +277,25 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3686` | 37 | 0 | 8/8 | 4/11 | 37 | 100.0% |
 
 ---
+
+### Experiment: `test-2prob-guards` (whitebox)
+- **Timestamp:** 2026-10-25 19:27:59
+- **Notes / Hypothesis:** Verify append guard and instant submit on lcb-3594 and lcb-3612
+- **Cost / Tokens:** $0.0279 | 267,852 tokens
+- **Total Function Calls Used:** 95
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **85.7% (11/13)** | Primary Goal |
+| **Hard-Mutant Score** | **100.0% (12/12)** | High-Yield Mutants |
+| **Path Coverage** | 95.0% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 94.0% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 44 | 1 | 6/6 | 3/3 | 45 | 100.0% |
+| `lcb-3612` | 50 | 5 | 5/7 | 9/9 | 50 | 100.0% |
+
+---
