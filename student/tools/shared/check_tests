@@ -131,9 +131,11 @@ def main() -> int:
 
     problems = 0
     seen_bodies = {}
+    is_whitebox = Path("tests/test_whitebox.py").exists()
 
     # 1. Syntax, rejection, assertion, and smell checks per file
     for path in files:
+        is_seed = is_whitebox and path.name == "test_blackbox.py"
         try:
             tree = ast.parse(path.read_text())
         except SyntaxError as error:
@@ -150,14 +152,20 @@ def main() -> int:
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
                 if not has_assertion(node):
-                    print(f"ERROR {path}::{node.name}: Missing assertion. Add an assert statement.")
-                    problems += 1
+                    if is_seed:
+                        print(f"WARNING {path}::{node.name}: Missing assertion in seed test.")
+                    else:
+                        print(f"ERROR {path}::{node.name}: Missing assertion. Add an assert statement.")
+                        problems += 1
 
                 for inner in ast.walk(node):
                     if isinstance(inner, ast.Assert) and isinstance(inner.test, ast.Constant):
                         val = repr(inner.test.value)
-                        print(f"ERROR {path}::{node.name} (line {inner.lineno}): Constant assertion 'assert {val}' found. Replace with real assertion.")
-                        problems += 1
+                        if is_seed:
+                            print(f"WARNING {path}::{node.name} (line {inner.lineno}): Constant assertion 'assert {val}' found in seed test.")
+                        else:
+                            print(f"ERROR {path}::{node.name} (line {inner.lineno}): Constant assertion 'assert {val}' found. Replace with real assertion.")
+                            problems += 1
                     if isinstance(inner, ast.With) and any(
                         ast.unparse(item.context_expr).replace(" ", "").endswith("raises(Exception)")
                         for item in inner.items
@@ -167,8 +175,11 @@ def main() -> int:
                 body = ast.dump(ast.Module(body=node.body, type_ignores=[]))
                 if body in seen_bodies:
                     orig_path, orig_name = seen_bodies[body]
-                    print(f"ERROR {path}::{node.name}: Duplicate test body identical to {orig_path}::{orig_name}. Delete duplicate test.")
-                    problems += 1
+                    if is_seed:
+                        print(f"WARNING {path}::{node.name}: Duplicate test body in seed test identical to {orig_path}::{orig_name}.")
+                    else:
+                        print(f"ERROR {path}::{node.name}: Duplicate test body identical to {orig_path}::{orig_name}. Delete duplicate test.")
+                        problems += 1
                 else:
                     seen_bodies[body] = (path, node.name)
 

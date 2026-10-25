@@ -16,9 +16,10 @@ def main() -> int:
         print(__doc__.strip())
         return 0
 
-    sol_path = Path("solution.py")
+    target_args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    sol_path = Path(target_args[0]) if target_args else Path("solution.py")
     if not sol_path.exists():
-        print("ERROR: solution.py not found.")
+        print(f"ERROR: {sol_path} not found.")
         return 1
 
     src = sol_path.read_text(encoding="utf-8", errors="replace")
@@ -46,7 +47,7 @@ def main() -> int:
     print("=== MC/DC INTERACTION TARGETS ===")
     print("Write one test per scenario below. Use fix_oracles to fill expected values.\n")
 
-    for node in sorted(boolops, key=lambda n: n.lineno):
+    for node in sorted(boolops, key=lambda n: (n.lineno, getattr(n, "col_offset", 0))):
         op_name = type(node.op).__name__   # "And" or "Or"
         line_text = lines[node.lineno - 1].strip() if 0 <= node.lineno - 1 < len(lines) else ""
         operands = [ast.unparse(v) for v in node.values]
@@ -56,8 +57,9 @@ def main() -> int:
         decision_flip = "False" if op_name == "And" else "True"
         scenario_label = "ALL-PASS" if op_name == "And" else "ALL-FAIL"
 
+        expr_str = ast.unparse(node)
         print(f"Line {node.lineno}: {line_text}")
-        print(f"  Compound [{op_name}] — {len(operands)} sub-conditions."
+        print(f"  Compound [{op_name}] ({expr_str}) — {len(operands)} sub-conditions."
               f" Pairwise MC/DC (vary one at a time, hold others at neutral={neutral}):")
 
         # Baseline: all neutral

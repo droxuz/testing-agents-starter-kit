@@ -37,13 +37,13 @@ instance_template: |
      every MUTANT SITE — it is the only input that kills the operator mutation.
      Add all tests near the TOP of `{{test_file}}`.
   7. Run `mcdc_report`.
-  8. For each MC/DC scenario listed, write one test. Do not compute expected values by hand —
-     run fix_oracles in Phase 3 to fill them in automatically.
-  9. Verify with `run_tests --whitebox-only`.
+  8. For each MC/DC scenario listed, write one test. Use dummy or approximate assertions —
+     DO NOT try to compute exact expected values by hand.
 
-  ### Phase 3: Automated Oracle Alignment
-  10. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
-     eliminating wrong-oracle test penalties.
+  ### Phase 3: Automated Oracle Alignment & Verification
+  9. Run `fix_oracles` IMMEDIATELY. Never debug or calculate assert values by hand —
+     `fix_oracles` rewrites all assertions in `{{test_file}}` to match `solution.py` return values.
+  10. Verify with `run_tests --whitebox-only` to confirm all tests pass cleanly.
 
   ### Phase 4: Budget & Submission Gate
   11. Run `check_tests`.

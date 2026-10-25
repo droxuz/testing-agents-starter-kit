@@ -37,6 +37,8 @@ def main() -> int:
     if len(output) > MAX_CHARS:
         output = "...(output truncated)...\n" + output[-MAX_CHARS:]
     print(output)
+    if result.returncode != 0 and os.path.exists("tests/test_whitebox.py"):
+        print("\nNOTE: If assertions failed, run `fix_oracles` to automatically align assertions with solution.py.")
     return result.returncode
 
 

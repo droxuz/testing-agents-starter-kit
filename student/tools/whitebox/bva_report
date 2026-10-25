@@ -24,15 +24,24 @@ OP_SWAP = {
 
 
 def has_early_exit(loop_node: ast.AST) -> bool:
-    nodes = list(loop_node.body + getattr(loop_node, "orelse", []))
-    while nodes:
-        curr = nodes.pop(0)
-        if isinstance(curr, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if isinstance(curr, (ast.Return, ast.Break)):
-            return True
-        nodes.extend(ast.iter_child_nodes(curr))
-    return False
+    def _has_exit(node: ast.AST, allow_break: bool) -> bool:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(child, ast.Return):
+                return True
+            if allow_break and isinstance(child, ast.Break):
+                return True
+            if isinstance(child, (ast.For, ast.While)):
+                # Break in inner loop only exits that loop; Return exits enclosing function
+                if _has_exit(child, allow_break=False):
+                    return True
+                continue
+            if _has_exit(child, allow_break):
+                return True
+        return False
+
+    return _has_exit(loop_node, allow_break=True)
 
 
 def main() -> int:
@@ -40,9 +49,10 @@ def main() -> int:
         print(__doc__.strip())
         return 0
 
-    sol_path = Path("solution.py")
+    target_args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    sol_path = Path(target_args[0]) if target_args else Path("solution.py")
     if not sol_path.exists():
-        print("ERROR: solution.py not found.")
+        print(f"ERROR: {sol_path} not found.")
         return 1
 
     src = sol_path.read_text(encoding="utf-8", errors="replace")
