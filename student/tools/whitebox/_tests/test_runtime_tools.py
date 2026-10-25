@@ -55,7 +55,7 @@ class RuntimeToolTests(unittest.TestCase):
 
     def test_all_help_interfaces_work_without_task_source(self):
         (self.root / 'solution.py').unlink()
-        for name in ('call_budget_report', 'mutation_probe'):
+        for name in ('oracle_report', 'call_budget_report', 'mutation_probe'):
             result = self.command(name, '--help')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('usage:', result.stdout)
@@ -144,6 +144,21 @@ class RuntimeToolTests(unittest.TestCase):
         self.assertIn('assert 4 == 5', report['tests'][0]['failures'][0]['detail'])
         self.assertEqual(report['call_examples'][0]['returned'], 4)
         self.assertEqual(report['calls_total'], 1)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_oracle_report_diagnoses_both_files_without_rewriting(self):
+        self.write('tests/test_whitebox.py', '''
+            from solution import Solution
+            def test_wrong():
+                assert Solution().f(3) == 7
+        ''')
+        before = self.snapshot()
+        result, report = self.report('oracle_report')
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([test['outcome'] for test in report['tests']], ['passed', 'failed'])
+        self.assertIn('assert 6 == 7', report['tests'][1]['failures'][0]['detail'])
+        self.assertEqual(report['call_examples'][1]['returned'], 6)
+        self.assertFalse(report['assertions_rewritten'])
         self.assertEqual(self.snapshot(), before)
 
     def test_target_exceptions_are_reported_without_rewriting(self):

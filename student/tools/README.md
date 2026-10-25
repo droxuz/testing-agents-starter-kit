@@ -73,23 +73,32 @@ Run the analysis regression checks from the repository root with:
 python -m unittest discover -s student/tools/whitebox/_tests -p 'test_*.py'
 ```
 
-## Runtime call counting and local mutation probing
+## Oracle diagnostics, runtime call counting and local mutation probing
 
-Two independent runtime commands are retained for white-box/combined mode. Both
+Three independent runtime commands are available in white-box/combined mode. All
 accept `--method NAME`, `--timeout SECONDS`, and `--json`. They read task source and
-tests only; neither uses hidden bug/mutant data or launches another tool's CLI.
+tests only; none uses hidden bug/mutant data or launches another tool's CLI.
 
 | Command | Purpose | Default bound |
 |---|---|---|
+| `oracle_report` | Execute tests and report failures, exceptions, and observed target returns without rewriting assertions | 20 seconds |
 | `call_budget_report` | Execute tests and count actual target entries, by test/file, with an ordered budget projection | 50-call allowance; 20 seconds |
 | `mutation_probe` | Test locally generated source variants after two passing reference runs | 12 variants; 4 seconds per suite; 60 seconds overall |
 
 Run from the task workspace, replacing `solve` with the target method:
 
 ```bash
+oracle_report --method solve
 call_budget_report --method solve --budget 50
 mutation_probe --method solve --limit 6 --test-timeout 3 --timeout 30
 ```
+
+`oracle_report` runs both test files against the reference and reports failed IDs,
+pytest failure details, and bounded input/output examples. It never changes tests
+or corrects assertions automatically. Passing tests do not establish SPEC-valid
+inputs or strong assertions. Review failures, correct your white-box tests as
+needed, and rerun execution. Reference observations must remain confined to
+white-box/combined mode.
 
 `call_budget_report` includes parameters, loops, helper calls, fixture setup/teardown,
 test-module import calls, and recursive target entries. It reports observed calls,
@@ -111,12 +120,12 @@ are distinct from kills. Equivalent mutants may survive; the local sample is not
 the evaluator's mutation or hard-mutant score. Two matching reference runs are an
 instability check, not proof of nonflakiness.
 
-The shorter white-box prompt prioritizes an early validated test batch, limits
-coverage refinement, requires final actual call counting, and makes mutation probing
-optional after a passing full suite. Static tools remain independently selectable;
-there is no required discovery/BVA/MC/DC/mutation chain. For ordinary failure
-diagnosis use `run_tests`; `fix_oracles` remains an optional, limited equality fixer
-whose edits require review and subsequent execution.
+The white-box prompt is restored to its earlier coverage and behavioral-testing
+workflow. Runtime commands are independently available through their advertised
+help; their availability does not require running every command. Static tools
+remain independently selectable, with no required discovery/BVA/MC/DC chain.
+`oracle_report` diagnoses failures without edits; `fix_oracles` is a separate,
+limited equality fixer whose edits require review and subsequent execution.
 
 Private `_runtime.py` provides suite execution, target-call recording, method
 selection, and bounded diagnostics; `_mutations.py` generates mutation candidates.
