@@ -40,15 +40,28 @@ instance_template: |
      - Add these tests to `{{test_file}}`. Place high-potency boundary tests near the TOP.
   7. Verify with `run_tests --whitebox-only`.
 
+  8. If the implementation contains compound decisions, run `mcdc_targets.py`
+     once directly through PATH. It already reuses AST discovery and BVA;
+     do not call discover_conditions.py or boundary_values.py separately.
+  9. Use its independence pairs to find condition combinations missing from
+     the existing black-box and white-box tests. Reuse existing pair members
+     and add only useful missing cases.
+     - Respect short-circuit guards, shared variables, and SPEC constraints.
+     - Treat rows as abstract targets; skip infeasible combinations.
+     - Decision T/F is not the expected function return value.
+     - Derive exact expected outputs from SPEC.
+     - Use --line N only for a useful decision omitted from the report.
+  10. Verify additions with `run_tests --whitebox-only`.
+
   ### Phase 3: Automated Oracle Alignment
-  8. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
+  11. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
      eliminating wrong-oracle test penalties.
 
   ### Phase 4: Budget & Submission Gate
-  9. Run `check_tests`.
+  12. Run `check_tests`.
      - If any errors or budget warnings appear, fix them.
      - If calls exceed {{max_calls}}, prune redundant tests from the bottom of `{{test_file}}`.
-  10. When `check_tests` reports OK, complete the task by running:
+  13. When `check_tests` reports OK, complete the task by running:
       `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
 
   ## Tools Available
