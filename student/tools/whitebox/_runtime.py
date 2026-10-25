@@ -232,59 +232,11 @@ def suite_worker(root, source, method, scratch):
                       'Input previews are bounded; repeated previews are hints, not proof of redundant tests.']}
 
 
-def cases_worker(root, source, method, request):
-    import coverage
-
-    module = load_solution(root, source)
-    instance = None
-    seen = set()
-    rows = []
-    for index, original in enumerate(request['cases'], 1):
-        # Serialization gives every candidate independent input data.
-        case = json.loads(json.dumps(original))
-        args, kwargs = case.get('args', []), case.get('kwargs', {})
-        before = preview({'args': args, 'kwargs': kwargs})
-        label = case.get('label', f'case{index}')
-        row = {'label': label, 'input': before}
-        cov = coverage.Coverage(branch=True, data_file=None, config_file=False,
-                                include=[str(root / 'solution.py')])
-        try:
-            if instance is None or not request.get('reuse_instance'):
-                instance = module.Solution()
-            cov.start()
-            value = getattr(instance, method)(*args, **kwargs)
-            row['returned'] = preview(value)
-            if 'expected' in case:
-                row['expected'] = preview(case['expected'])
-                row['expected_matches'] = bool(value == case['expected'])
-        except Exception as error:
-            row['raised'] = short_error(error)
-        finally:
-            cov.stop()
-        data = cov.get_data()
-        arcs = set(data.arcs(str(root / 'solution.py')) or [])
-        row['lines'] = sorted(data.lines(str(root / 'solution.py')) or [])
-        row['execution_arcs'] = [list(arc) for arc in sorted(arcs)]
-        row['new_arcs_vs_earlier_candidates'] = len(arcs - seen)
-        row['input_after'] = preview({'args': args, 'kwargs': kwargs})
-        row['input_changed'] = row['input'] != row['input_after']
-        seen.update(arcs)
-        rows.append(row)
-    return {'status': 'completed', 'method': method, 'cases': rows,
-            'notes': ['Inputs must be JSON-compatible; SPEC validity is not inferred.',
-                      'Fresh Solution per case unless --reuse-instance is selected; module globals persist.',
-                      'Execution arcs are observed line transitions, not a coverage percentage or MC/DC.',
-                      'Novelty is relative to earlier candidates, not the baseline suite.',
-                      'Previews may be truncated; input-change detection can miss changes outside previews.',
-                      'Reference outputs are observations; justify final assertions against SPEC.']}
-
-
-def execute(root, source, method, *, timeout=20, mode='suite', cases=None, reuse_instance=False):
+def execute(root, source, method, *, timeout=20):
     """Execute one isolated worker with transient files confined to the task folder."""
     with tempfile.TemporaryDirectory(prefix='.whitebox-', dir=root) as directory:
         request_path, report_path = Path(directory) / 'request.json', Path(directory) / 'report.json'
-        request_path.write_text(json.dumps({'root': str(root), 'source': source, 'method': method,
-                                           'mode': mode, 'cases': cases, 'reuse_instance': reuse_instance}))
+        request_path.write_text(json.dumps({'source': source, 'method': method}))
         env = os.environ | {'PYTEST_DISABLE_PLUGIN_AUTOLOAD': '1', 'PYTHONDONTWRITEBYTECODE': '1',
                             'PYTEST_ADDOPTS': '', 'PYTEST_PLUGINS': ''}
         try:
@@ -308,10 +260,7 @@ def worker(request_name, report_name):
     capture = Capture()
     with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
         try:
-            if request['mode'] == 'suite':
-                report = suite_worker(root, request['source'], request['method'], request_path.parent)
-            else:
-                report = cases_worker(root, request['source'], request['method'], request)
+            report = suite_worker(root, request['source'], request['method'], request_path.parent)
         except BaseException as error:
             report = {'status': 'execution_error', 'detail': short_error(error)}
     report['captured_output_tail'] = capture.tail

@@ -73,84 +73,55 @@ Run the analysis regression checks from the repository root with:
 python -m unittest discover -s student/tools/whitebox/_tests -p 'test_*.py'
 ```
 
-## Optional execution and behavioral diagnostics
+## Runtime call counting and local mutation probing
 
-These five commands are independent additions for white-box/combined mode. No
-prompt YAML is changed to require them. As with every executable tool, the harness
-automatically includes their `--help` text in the available-tools description.
-They do not call one another's CLI or use evaluator/hidden bug or mutant data.
-All support `--json`; execution tools accept `--method NAME` when inference from
-SPEC or the sole public `Solution` method is ambiguous.
+Two independent runtime commands are retained for white-box/combined mode. Both
+accept `--method NAME`, `--timeout SECONDS`, and `--json`. They read task source and
+tests only; neither uses hidden bug/mutant data or launches another tool's CLI.
 
 | Command | Purpose | Default bound |
 |---|---|---|
-| `oracle_report` | Execute tests; show failing IDs, pytest details, exceptions, and observed reference returns without rewriting assertions | 20 seconds |
-| `call_budget_report` | Count actual target entries, by test and file, with an ordered budget projection | 50 calls allowed; 20-second execution |
-| `fault_targets` | Suggest source-based arithmetic, update, indexing, initialization, ordering, loop-state, and modulo fault hypotheses | 10 targets |
-| `case_probe` | Execute an explicitly supplied JSON candidate set; report results, input changes, and line-transition arcs | 12 candidates; 20 seconds |
-| `mutation_probe` | Run tests on locally generated arithmetic, constant, comparison, update, selection, Boolean, and loop-exit mutations | 12 mutants; 4 seconds per suite; 60 seconds overall |
+| `call_budget_report` | Execute tests and count actual target entries, by test/file, with an ordered budget projection | 50-call allowance; 20 seconds |
+| `mutation_probe` | Test locally generated source variants after two passing reference runs | 12 variants; 4 seconds per suite; 60 seconds overall |
 
-Examples, run from the task workspace:
+Run from the task workspace, replacing `solve` with the target method:
 
 ```bash
-oracle_report
-call_budget_report --budget 50
-fault_targets --method solve --limit 8
-case_probe candidates.json --method solve
-mutation_probe --method solve --limit 8 --line 12
+call_budget_report --method solve --budget 50
+mutation_probe --method solve --limit 6 --test-timeout 3 --timeout 30
 ```
 
-Replace `solve` and line numbers with the actual target. None of these invocations
-requires another tool to run first. Runtime tools execute only `tests/test_*.py`,
-with external pytest plugins, pytest configuration discovery, and conftest loading
-disabled. Inline test fixtures and parametrization work. Temporary request/report
-files are confined to the task folder and removed after execution or a timeout.
-Tests and the reference source are not rewritten. Private `_runtime.py` and
-`_mutations.py` are shared implementation modules, not agent-visible commands.
+`call_budget_report` includes parameters, loops, helper calls, fixture setup/teardown,
+test-module import calls, and recursive target entries. It reports observed calls,
+remaining allowance, and cumulative test boundaries. Exit 1 can mean a failing suite
+or an exceeded budget; inspect the report. Failed/skipped paths may hide calls, so
+rerun after repairs. Counts precede evaluator validity/flakiness filtering and are a
+diagnostic projection, not an exact reproduction of evaluator partial-test handling.
+Calls during reference-module initialization precede instrumentation and are not
+counted. Repeated input previews are hints, not proof of redundant tests.
 
-`call_budget_report` counts loops, helper calls, parametrized invocations, fixture
-setup/teardown, and calls made while tests are imported. Recursive target entries
-are counted too. The displayed budget boundary uses all observed calls in collection
-order; it is not an exact reproduction of evaluator validity/flakiness filtering or
-partial-test handling. A failing/skipped path can hide calls that would run after
-repair, so rerun after edits. Repeated input previews are hints, not automatic
-deduplication: repetition may intentionally test state. Reference module import
-itself precedes instrumentation; target calls made inside that module at import
-time are not counted. This is separate from target calls in test-module imports,
-which are counted.
+`mutation_probe` requires two passing reference-suite executions with observed
+calls and matching test IDs/outcomes/counts. If preserved baseline tests fail, skip
+the probe instead of changing them. It generates deterministic, interleaved AST
+variants of the selected method (including nested definitions), executes each in a
+fresh subprocess, and leaves source/tests unchanged. `--line N` focuses a source
+site; `--limit` is 1-30, `--test-timeout` is 0.1-20 seconds, and `--timeout` is
+0.1-100 seconds. Timeouts, invalid runs, changed collections, and inconclusive runs
+are distinct from kills. Equivalent mutants may survive; the local sample is not
+the evaluator's mutation or hard-mutant score. Two matching reference runs are an
+instability check, not proof of nonflakiness.
 
-`oracle_report` diagnoses failures in both test files but never edits either one.
-Reference-based observations belong only in white-box/combined mode; they must not
-be exposed to black-box generation. Unsupported assertions remain ordinary pytest
-assertions: a diagnostic does not silently rewrite them or establish SPEC validity.
+The shorter white-box prompt prioritizes an early validated test batch, limits
+coverage refinement, requires final actual call counting, and makes mutation probing
+optional after a passing full suite. Static tools remain independently selectable;
+there is no required discovery/BVA/MC/DC/mutation chain. For ordinary failure
+diagnosis use `run_tests`; `fix_oracles` remains an optional, limited equality fixer
+whose edits require review and subsequent execution.
 
-`case_probe` accepts a JSON list, for example:
-
-```json
-[
-  {"label": "tie", "args": [[2, 2]], "kwargs": {}, "expected": 4},
-  {"label": "unequal", "args": [[2, 5]], "kwargs": {}}
-]
-```
-
-Use cases valid for the actual task; the example is only a schema. `expected` is
-optional and compared using Python equality. Arguments/results must be compatible
-with this JSON interface; arbitrary custom object construction is not supported.
-Fresh argument data and a fresh `Solution()` are used per case unless
-`--reuse-instance` explicitly requests a sequence on one instance. Module globals
-still persist within a probe. Constructors must take no required arguments.
-The maximum is 32 candidates and 100 KB of JSON. Output previews are bounded, so
-input-change detection can miss changes outside a preview. Coverage arcs are
-observed transitions, not a percentage or MC/DC coverage. Arc novelty compares
-earlier candidates, not baseline tests; equal arcs do not establish redundant cases.
-
-`mutation_probe` first requires two matching passing reference executions with
-observed target calls. It then executes fresh in-memory source variants in isolated
-subprocesses. Only the selected declared method (including nested definitions) is
-mutated, not arbitrary helper methods. Mutants are generated deterministically and
-interleaved across available mutation families; `--line` can focus a source site.
-Import/collection failures, timeouts, changed test collections, and other ambiguous
-outcomes are reported separately rather than counted as kills. Two baseline runs
-are an instability check, not proof of nonflakiness. Equivalent mutants may survive;
-the bounded local sample is not the evaluator's mutation or hard-mutant score.
-No report from hidden evaluation is read by these tools.
+Private `_runtime.py` provides suite execution, target-call recording, method
+selection, and bounded diagnostics; `_mutations.py` generates mutation candidates.
+Neither is an agent-visible command. Workers collect only direct `tests/test_*.py`
+files, disable external pytest plugins/configuration and conftest loading, and
+support inline fixtures and parametrization. Temporary request/report files stay
+inside the task folder and are cleaned up on completion/timeout. There is no
+candidate-JSON execution interface.
