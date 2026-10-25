@@ -19,8 +19,8 @@ instance_template: |
   - Every test needs at least one assertion with an exact expected value.
   - All tests must pass on the given `solution.py`.
   - Do not read or modify files outside this folder.
-  - Do not import os, inspect, pathlib or similar modules in tests, and do not open files: the evaluator
-    rejects any test file that could read the code under test.
+  - Do not import os, inspect, pathlib or similar modules in tests, and do not open files.
+  - NEVER write the string "solution.py" anywhere inside `{{test_file}}` (including docstrings or comments): the evaluator automatically rejects any test file containing this text.
   - Only the first {{max_calls}} calls to the function are measured, counted in file order. Put the most
     important tests first.
 
