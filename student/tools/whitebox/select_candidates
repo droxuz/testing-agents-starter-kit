@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""select_candidates: rank specification-derived inputs by white-box execution diversity.
+
+Usage: select_candidates candidates.json --method METHOD [--max-calls 50] [--write]
+Input: a JSON list of up to 80 objects, each {"args": [...], "kwargs": {},
+"reason": "specification rule and intended distinction"}. kwargs is optional.
+Use small, LEGAL inputs. Known numeric/dependent constraints from SPEC.md are
+checked before candidate execution; unsupported rules remain unverified.
+A whole matrix is ONE argument: args=[[[1,2,5],[3,4,10]]]. Prefer args=[] with
+kwargs={"actual_parameter_name":matrix} when nesting is confusing.
+Executes provided solution.py, traces inherited test_blackbox.py, then executes
+candidates twice on fresh Solution instances. Selects new edges first, ordered
+line traces and edge-count buckets next; output diversity is a fallback.
+Same paths can still expose different bugs: the ranking is only a heuristic.
+Writes candidate_report.json. --write creates tests/test_whitebox.py with literal
+assertions and fresh instances; refuses to overwrite an existing white-box file.
+Inherited tests and solution.py must remain unchanged. Inherited failures are
+reported, not fixed. Reserves external entries into the solution (including construction and helpers).
+Internal recursion is traced but does not spend additional call budget.
+If inherited calls exhaust the budget, reports STOP and exports no new tests.
+Requires task-local solution.py and candidate JSON; no network or hidden data.
+Subprocess limits: 25s inherited, 30s candidates; large/slow candidates may abort
+measurement. No automatic submission. Validate exported tests after generation.
+"""
+import argparse
+import hashlib
+import json
+import keyword
+from pathlib import Path
+import subprocess
+import sys
+
+WORKER = Path(__file__).with_name('_trace_worker.py')
+
+
+def local_path(name):
+    p = Path(name)
+    if p.is_absolute() or '..' in p.parts or not p.resolve().is_relative_to(Path.cwd().resolve()):
+        raise ValueError('paths must remain inside the task folder')
+    if p.is_symlink():
+        raise ValueError('symlink paths are unsupported')
+    return p
+
+
+def checksum(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+
+
+def invoke(request, timeout):
+    result = subprocess.run([sys.executable, str(WORKER)], input=json.dumps(request),
+                            text=True, capture_output=True, timeout=timeout)
+    if len(result.stdout) > 4_000_000:
+        raise ValueError('trace output too large')
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        raise ValueError('worker failed to return a trace report') from None
+    if result.returncode or 'error' in data:
+        raise ValueError(data.get('error', 'worker failed'))
+    return data
+
+
+def select(rows, baseline, slots):
+    seen = set().union(*(set(r['features']) for r in baseline)) if baseline else set()
+    keys = {r['key'] for r in baseline if r['key'] is not None}
+    chosen, outputs = [], set()
+    remaining = [r for r in rows if 'error' not in r]
+    while remaining and slots > 0:
+        eligible = [r for r in remaining if r['key'] not in keys and r.get('calls', 1) <= slots]
+        if not eligible:
+            break
+        def score(row):
+            novel = set(row['features']) - seen
+            return (sum(f.startswith('edge:') for f in novel),
+                    any(f.startswith('trace:') for f in novel),
+                    sum(f.startswith('count:') for f in novel),
+                    row['expected'] not in outputs, -row['index'])
+        best = max(eligible, key=score)
+        novelty = set(best['features']) - seen
+        chosen.append({**best, 'novel_features': len(novelty),
+                       'novel_edges': sum(f.startswith('edge:') for f in novelty)})
+        seen.update(best['features']); keys.add(best['key']); outputs.add(best['expected'])
+        slots -= best.get('calls', 1)
+        remaining.remove(best)
+    return chosen
+
+
+def render(selected, candidates, method):
+    lines = ['from solution import Solution', '']
+    for i, row in enumerate(selected):
+        c = candidates[row['index']]
+        # JSON primitives have safe Python literal representations.
+        args = ', '.join(repr(value) for value in c['args'])
+        kwargs = ', '.join(f'{key}={value!r}' for key, value in c.get('kwargs', {}).items())
+        arguments = ', '.join(part for part in (args, kwargs) if part)
+        reason = ' '.join(c['reason'].split())[:200]
+        lines.extend([f'def test_selected_{i:02d}():', f'    # {reason}',
+                      f'    assert Solution().{method}({arguments}) == {row["expected"]}', ''])
+    return '\n'.join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('candidates')
+    parser.add_argument('--method', required=True)
+    parser.add_argument('--max-calls', type=int, default=50)
+    parser.add_argument('--write', action='store_true')
+    args = parser.parse_args()
+    try:
+        if not args.method.isidentifier() or args.method.startswith('_') or keyword.iskeyword(args.method):
+            raise ValueError('expected a public method name')
+        if not 1 <= args.max_calls <= 50:
+            raise ValueError('max-calls must be between 1 and 50')
+        solution = local_path('solution.py')
+        if not solution.is_file():
+            raise ValueError('missing task solution.py')
+        inherited = local_path('tests/test_blackbox.py')
+        target = local_path('tests/test_whitebox.py')
+        report = local_path('candidate_report.json')
+        if args.write and target.exists():
+            raise ValueError('white-box file exists; refusing to overwrite')
+        if local_path('tests/conftest.py').exists():
+            raise ValueError('conftest.py is not exported by evaluator; remove scratch fixtures first')
+        spec=local_path('SPEC.md')
+        if not spec.is_file():raise ValueError('missing SPEC.md for input validation')
+        source = local_path(args.candidates)
+        if source.stat().st_size > 65536:
+            raise ValueError('candidate JSON exceeds 64 KiB')
+        candidates = json.loads(source.read_text(), parse_constant=lambda x: (_ for _ in ()).throw(ValueError('nonfinite number')))
+        if not isinstance(candidates, list) or not 1 <= len(candidates) <= 80:
+            raise ValueError('provide 1..80 candidate objects')
+        for c in candidates:
+            if not isinstance(c, dict) or not isinstance(c.get('args'), list) or not isinstance(c.get('kwargs', {}), dict):
+                raise ValueError('each candidate needs args list and optional kwargs object')
+            if not isinstance(c.get('reason'), str) or not c['reason'].strip():
+                raise ValueError('each candidate needs a specification-based reason')
+            if any(not k.isidentifier() or k.startswith('_') or keyword.iskeyword(k) for k in c.get('kwargs', {})):
+                raise ValueError('invalid keyword name')
+        before = {p: checksum(p) for p in (solution, inherited, target, source, spec)}
+        baseline = invoke({'mode': 'baseline', 'method': args.method}, 25)
+        if baseline['calls'] >= args.max_calls:
+            if any(checksum(p) != value for p, value in before.items()):
+                raise ValueError('a protected input changed during execution; no export')
+            report.write_text(json.dumps({
+                'status': 'inherited_budget_exhausted',
+                'inherited_calls': baseline['calls'],
+                'inherited_pytest_code': baseline['pytest_code'],
+                'available_calls': 0, 'selected': [], 'rejected': [],
+                'candidates_executed': False,
+            }, indent=2)+'\n')
+            print(f'Inherited calls: {baseline["calls"]}; budget: {args.max_calls}.')
+            print('STOP: inherited tests exhaust the shared budget. No candidates executed or tests exported.')
+            print('Keep inherited tests unchanged. Do not write fallback tests; submit the existing suite.')
+            return 0
+        measured = invoke({'mode': 'candidates', 'method': args.method, 'candidates': candidates}, 30)
+        if any(checksum(p) != value for p, value in before.items()):
+            raise ValueError('a protected input changed during execution; no export')
+        used = baseline['calls']
+        slots = max(0, args.max_calls - used)
+        selected = select(measured['rows'], baseline['records'], slots)
+        summary = {'inherited_calls': used, 'inherited_pytest_code': baseline['pytest_code'],
+                   'available_calls': slots, 'selected': selected,
+                   'rejected': [r for r in measured['rows'] if 'error' in r],
+                   'constraints_verified': False, 'known_constraint_checks': True,
+                   'unparsed_rules': measured['unparsed_rules'],
+                   'selected_unresolved_bounds': sum(row.get('unresolved_bounds',0) for row in selected)}
+        report.write_text(json.dumps(summary, indent=2)+'\n')
+        print(f'Inherited: {used} observed target calls; pytest exit {baseline["pytest_code"]}.')
+        print(f'Candidates: {len(candidates)}; rejected: {len(summary["rejected"])}; selected: {len(selected)}; available calls: {slots}.')
+        for row in selected[:6]:
+            print(f'Candidate {row["index"]}: {row["novel_edges"]} new edges, {row["novel_features"]} new trace features.')
+        if summary['rejected']:
+            print('Actual parameter names: '+', '.join(measured['parameters'])+'; use args=[] and kwargs with these names for list/matrix inputs.')
+        for row in summary['rejected'][:3]:
+            print(f'Rejected {row["index"]}: {row["error"]}')
+        print(f'Known constraints checked; UNKNOWN rules: {measured["unparsed_rules"]}; selected unresolved bounds: {summary["selected_unresolved_bounds"]}.')
+        print('Full legality and bug detection remain unproven. Details: candidate_report.json')
+        if not selected:
+            raise ValueError('no candidate selected; inherited budget exhausted or inputs duplicate/invalid')
+        if args.write:
+            target.parent.mkdir(exist_ok=True)
+            target.write_text(render(selected, candidates, args.method))
+            print('Wrote tests/test_whitebox.py. Run static checks and pytest on this file before submitting.')
+        return 0
+    except (ValueError, TypeError, OSError, subprocess.TimeoutExpired) as error:
+        print('ERROR: ' + str(error)[:350])
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

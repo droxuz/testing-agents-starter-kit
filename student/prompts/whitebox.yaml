@@ -8,7 +8,7 @@ instance_template: |
 
   `solution.py` contains a correct implementation of the specification below.
   `tests/test_blackbox.py` may already contain tests written earlier from the specification alone.
-  Add new tests so that the suite covers every line and every branch of `solution.py`.
+  Add discriminating tests using candidate execution traces as well as the specification.
 
   {{spec}}
 
@@ -26,11 +26,47 @@ instance_template: |
 
   ## Suggested approach
 
-  1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
-  2. For each missed line or branch, find an input that reaches it and write a test for it.
-  3. Run `run_tests` and fix any failing test.
-  4. Repeat until coverage stops improving.
-  5. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+  1. Read solution.py and tests/test_blackbox.py once. Identify important comparisons,
+     competing choices, state updates and boundaries in the code, checking their meaning
+     against the specification. Stay inside the current task folder; do not use /testbed.
+  2. Immediately write candidates.json: a JSON list of 40-60 small, diverse, LEGAL inputs.
+     Each object has "args": [positional arguments], optional "kwargs": {}, and "reason":
+     a short specification rule and intended distinction. IMPORTANT: args lists FUNCTION
+     ARGUMENTS, not elements of an array. A list input is nested once inside args; a matrix
+     input is nested again. To avoid ambiguity, prefer args=[] and kwargs with actual
+     signature parameter names, e.g. {"args":[],"kwargs":{"intervals":[[1,2,5],[3,4,10]]},
+     "reason":"two competing intervals"} for a function taking intervals. Replace this
+     illustrative parameter/example with the real signature and legal task inputs.
+     Use only applicable scenarios:
+     equality versus either side, tied competing choices, loop zero/one/many when legal,
+     order changes, overlapping choices, and changing state between iterations.
+     A claimed tie must require choosing between candidates, and a limit test must include
+     enough legal alternatives to distinguish that limit. Include interacting rules.
+     Do not copy inherited inputs or use only trivial value changes. JSON must have no
+     comments. Persist this file before exploratory executions; avoid repeated source reads.
+  3. Run select_candidates candidates.json --method {{func_name}} --max-calls {{max_calls}} --write.
+     This runs the provided correct code, ranks candidates against inherited execution
+     traces, reserves observed inherited calls, and writes literal tests in {{test_file}}.
+     Read its compact report. If it says STOP because inherited calls exhaust the budget,
+     immediately submit the inherited suite with echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT.
+     No new white-box file is necessary in that case. Never edit inherited tests, invent
+     fallback tests, or try to evade the shared budget. Otherwise continue validation.
+     It cannot certify input legality or semantic test quality.
+     Known numeric/dependent constraint violations are rejected before execution; review
+     UNKNOWN rules manually. Verify selected cases satisfy the spec and comments. Fresh repeated
+     outputs are checks, not proof of absence of flakiness. Full coverage alone is insufficient.
+     If candidates fail argument binding, use the reported actual parameter names and
+     correct the JSON nesting/kwargs, then rerun the SAME tool. Do not replace the tool
+     workflow with handwritten expected-answer suites. If all candidates duplicate inherited
+     inputs, add genuinely new inputs. It refuses to overwrite an existing white-box file.
+  4. Run check_tests, then python -m pytest {{test_file}} -q to validate ONLY new tests.
+     Do not run run_tests PATH: that tool includes the entire inherited suite as well.
+     Inherited failures reported by selection must remain unchanged. Correct new tests only
+     after checking both specification and code; never weaken assertions simply to pass.
+     Keep the combined inherited/new suite within {{max_calls}} calls. Exported tests must
+     import Solution and use literal expected values, never import scratch candidate files.
+  5. After successful checks, submit with echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT as
+     a separate command. Do not repeat successful checks or add redundant exploratory calls.
 
   ## Tools
 

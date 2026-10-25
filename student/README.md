@@ -1,9 +1,37 @@
-# Matthew's black-box handoff
+# Matthew's separate testing-agent handoff
 
-This branch contains **experimental black-box safeguards**, not a demonstrated
-improvement in bug detection. Evaluate with the team's white-box changes before
-selecting the final configuration. The final strategy and other modes' prompts
-have not been changed.
+This branch contains the black-box safeguards below and the evaluated **trace-v3
+white-box workflow**. `final.yaml` selects `separate`. The assigned model and
+`settings.yaml` are unchanged. See the repository's `REPORT.md` for the final
+comparison, experiment limitations, and team details.
+
+## White-box integration
+
+Keep these files together:
+
+- `prompts/whitebox.yaml`: candidate generation, selection, validation, and submission workflow.
+- `tools/whitebox/select_candidates`: executable command that ranks candidates and exports literal pytest assertions.
+- `tools/whitebox/_trace_worker.py`: bounded worker for tracing and repeated candidate execution.
+- `tools/whitebox/_test_select_candidates.py`: local synthetic regression checks.
+- `tools/blackbox/check_inputs` and `list_constraints`: reused for supported input-constraint checks.
+
+The selector reads only task-local specification, provided implementation, and
+inherited tests. It uses no network or extra model calls. It reserves inherited
+external calls from the shared 50-call budget and explicitly stops when that
+budget is exhausted. Unknown constraints remain unverified. Generated tests
+contain fixed expected values; they do not import the worker or candidate JSON.
+
+The final 61-problem evaluation detected 268/350 bugs versus the starter's
+251/350, with 186/240 versus 185/240 hard mutants and zero over-budget tests.
+One white-box task was interrupted; its black-box tests were evaluated. API
+failures and stochastic generation limit causal and cost claims. These are
+whole-configuration results, not proof of a standalone black-box improvement.
+
+Raw runs, configuration snapshots, and private journals remain ignored under
+`runs/` and are not included in this commit. Ask Matthew for the evaluation
+artifacts when assembling `results/` and the final submission ZIP.
+
+The following sections preserve the black-box experiments and their limitations.
 
 ## Included changes
 
@@ -15,7 +43,7 @@ have not been changed.
 | `tools/blackbox/check_tests` | Flag unittest assertions in plain pytest classes, contradictory literal expected answers for matching fresh-instance calls, and possible budget overruns; then delegate to the unchanged shared checker. |
 
 The archived `review_tests` duplicate checker is **not** part of this candidate.
-All tools are offline. They never read a real implementation or hidden bug data.
+The black-box tools are offline. They never read a real implementation or hidden bug data.
 The original shared checker still imports test modules for pytest collection;
 its test-body execution behavior is unchanged.
 
@@ -78,7 +106,7 @@ retained usable tests despite an API error later in generation.
 On the five problems with valid tests in both configurations, starter catches
 18/27 bugs versus candidate's 17/27. This completion-selected comparison is
 also descriptive, not an unbiased validation estimate. We have not established
-consistent bug-detection gains. No full 61-problem run of this candidate exists.
+consistent bug-detection gains. These were preliminary black-box experiments; the later full separate run is documented in `REPORT.md`.
 
 ### Demonstrated local safeguards
 
