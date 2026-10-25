@@ -79,3 +79,27 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3686` | 37 | 0 | 8/8 | 4/11 | 37 | 100.0% |
 
 ---
+
+### Experiment: `exp1-runner` (whitebox)
+- **Timestamp:** 2026-10-24 20:56:15
+- **Notes / Hypothesis:** Phase 1: run_tests whitebox-only flag with docstring guard
+- **Cost / Tokens:** $0.0525 | 506,940 tokens
+- **Total Function Calls Used:** 127
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **81.5% (23/28)** | Primary Goal |
+| **Hard-Mutant Score** | **67.4% (15/24)** | High-Yield Mutants |
+| **Path Coverage** | 92.0% | Branch/Path Exhaustion |
+| **Branch Coverage** | 97.5% | Structural Coverage |
+| **Oracle Precision** | 95.2% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 18 | 0 | 5/6 | 1/3 | 18 | 90.0% |
+| `lcb-3610` | 31 | 1 | 4/7 | 1/1 | 32 | 100.0% |
+| `lcb-3612` | 63 | 5 | 6/7 | 9/9 | 50 | 100.0% |
+| `lcb-3686` | 26 | 1 | 8/8 | 4/11 | 27 | 100.0% |
+
+---

@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import json
+import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -171,6 +172,7 @@ def main(argv: list[str] | None = None) -> None:
         f"Done. {len(rows)} problems, {totals['prompt_tokens'] + totals['completion_tokens']} tokens,"
         f" ${totals['cost_usd']:.4f}. Usage saved to {run_dir / args.mode / 'usage.json'}"
     )
+    os._exit(0)
 
 
 if __name__ == "__main__":

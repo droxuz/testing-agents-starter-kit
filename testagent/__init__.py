@@ -19,6 +19,7 @@ try:
     _post_pool = ThreadPoolExecutor(max_workers=32)
 
     def _hard_timeout_post(url, *args, **kwargs):
+        kwargs.setdefault("timeout", (10.0, 240.0))
         fut = _post_pool.submit(_orig_post, url, *args, **kwargs)
         try:
             return fut.result(timeout=240.0)
