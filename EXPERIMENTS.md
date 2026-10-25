@@ -153,27 +153,27 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 > **Note / Footnote:** No significant metric improvement was expected on this 4-problem dev benchmark suite because whitebox tests for these 4 problems already had zero wrong oracles (the 6 remaining wrong oracles in the table are inherited from the pre-seeded blackbox tests). However, `fix_oracles` is expected to make a measurable difference on the full 61-problem benchmark suite, specifically on the key problems where wrong oracles are prevalent (which accounted for 31+ discarded whitebox tests in the baseline run).
 
 ---
-
 ### Experiment: `exp4-bva-pipeline` (whitebox)
-- **Timestamp:** 2026-10-24 23:28:00
+- **Timestamp:** 2026-10-24 23:42:59
 - **Notes / Hypothesis:** Phase 4: bva_report comprehensive boundary analysis and full pipeline
-- **Cost / Tokens:** $0.0356 | 350,181 tokens
-- **Total Function Calls Used:** 126
+- **Cost / Tokens:** $0.0411 | 401,400 tokens
+- **Total Function Calls Used:** 138
 
 | Metric | Result | Target / Baseline |
 |---|---|---|
-| **Bug Detection Rate** | **89.3% (25/28)** | Primary Goal |
-| **Hard-Mutant Score** | **67.4% (15/24)** | High-Yield Mutants |
-| **Path Coverage** | 97.4% | Branch/Path Exhaustion |
-| **Branch Coverage** | 100.0% | Structural Coverage |
-| **Oracle Precision** | 95.2% | Test Correctness |
+| **Bug Detection Rate** | **78.0% (22/28)** | Primary Goal |
+| **Hard-Mutant Score** | **59.1% (16/24)** | High-Yield Mutants |
+| **Path Coverage** | 94.7% | Branch/Path Exhaustion |
+| **Branch Coverage** | 97.5% | Structural Coverage |
+| **Oracle Precision** | 95.7% | Test Correctness |
 
 #### Per-Problem Breakdown
 | Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `lcb-3594` | 26 | 0 | 6/6 | 1/3 | 26 | 100.0% |
-| `lcb-3610` | 29 | 1 | 6/7 | 1/1 | 30 | 100.0% |
+| `lcb-3594` | 37 | 0 | 5/6 | 3/3 | 37 | 90.0% |
+| `lcb-3610` | 28 | 1 | 4/7 | 0/1 | 29 | 100.0% |
 | `lcb-3612` | 30 | 5 | 5/7 | 9/9 | 35 | 100.0% |
-| `lcb-3686` | 35 | 0 | 8/8 | 4/11 | 35 | 100.0% |
+| `lcb-3686` | 37 | 0 | 8/8 | 4/11 | 37 | 100.0% |
 
 ---
+
