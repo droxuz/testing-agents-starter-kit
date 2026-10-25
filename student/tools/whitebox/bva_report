@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bva_report: inspect solution.py for relational comparisons and boundary constants.
 Usage: bva_report
-Output format:
+Expected output:
 - Relational targets: Line number, comparison, and tests for equality (L == R) & off-by-one (L = R +- 1)
 - Structural targets: Minimal container sizes (len=1, 2) and homogeneous arrays ([v, v, ...])"""
 
@@ -58,25 +58,36 @@ def main() -> int:
                 if op_name in RELATIONAL_OPS or op_name in EQUALITY_OPS:
                     left_str = ast.unparse(curr_left)
                     right_str = ast.unparse(comp)
-                    key = (node.lineno, left_str, op_name, right_str)
+                    col = getattr(curr_left, "col_offset", getattr(node, "col_offset", 0))
+                    key = (node.lineno, col, left_str, op_name, right_str)
                     if key not in seen_comps:
                         seen_comps.add(key)
                         line_text = lines[node.lineno - 1].strip() if 0 <= node.lineno - 1 < len(lines) else ""
-                        comparisons.append((node.lineno, line_text, left_str, op_name, right_str))
+                        comparisons.append((node.lineno, col, line_text, left_str, op_name, right_str))
                 curr_left = comp
 
-        # 2. Integer constants in expressions/conditions (boundary offsets)
+        # 2. Integer constants in expressions/conditions (boundary offsets, including negative integers)
         elif isinstance(node, ast.Constant) and type(node.value) is int:
             val = node.value
             if val not in seen_consts and val in (0, 1, 2, -1):
                 seen_consts.add(val)
                 constants.append(val)
+        elif (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and type(node.operand.value) is int
+        ):
+            val = -node.operand.value
+            if val not in seen_consts and val in (0, 1, 2, -1):
+                seen_consts.add(val)
+                constants.append(val)
 
-    comparisons.sort(key=lambda x: (x[0], x[2]))
+    comparisons.sort(key=lambda x: (x[0], x[1]))
 
     print("=== 1. RELATIONAL COMPARISON TARGETS (TIES & OFF-BY-ONES) ===")
     if comparisons:
-        for lineno, line_text, left, op_name, right in comparisons:
+        for lineno, col, line_text, left, op_name, right in comparisons:
             swap = OP_SWAP.get(op_name, "swap")
             if op_name in RELATIONAL_OPS:
                 op_sym = RELATIONAL_OPS[op_name]
