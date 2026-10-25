@@ -8,7 +8,8 @@ import operator
 import re
 from pathlib import Path
 
-from discover_conditions import conditions, format_logic
+from discover_conditions import (analyze, parser_for, source_targets,
+                                 print_target, print_atom)
 
 
 OPS = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt,
@@ -26,7 +27,7 @@ def literal(node):
 
 
 def boundary_hint(text):
-    node = ast.parse(text, mode="eval").body
+    node = ast.parse(text, mode="eval").body if isinstance(text, str) else text
     if not isinstance(node, ast.Compare) or len(node.ops) != 1:
         return "seek truthy and falsy cases; no numeric boundary inferred"
     left, right, op = node.left, node.comparators[0], type(node.ops[0])
@@ -91,60 +92,30 @@ def brief(text, limit=200):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", nargs="?", default="solution.py")
-    parser.add_argument("--line", type=int, help="decision source line")
-    parser.add_argument("--limit", type=int, default=4, help="maximum decisions (1-30; default 4)")
-    parser.add_argument("--verbose", action="store_true", help="full report")
+    parser = parser_for(__doc__, 4)
     args = parser.parse_args()
-    if not 1 <= args.limit <= 30:
-        parser.error("--limit must be between 1 and 30")
-    if args.line is not None and args.line < 1:
-        parser.error("--line must be positive")
-    path = Path(args.source).resolve()
-    if not path.is_relative_to(Path.cwd().resolve()):
-        parser.error("source must be inside the current task folder")
     try:
-        if path.stat().st_size > 200_000:
-            parser.error("source must not exceed 200 KB")
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-        decisions = sorted((node for node in ast.walk(tree)
-                            if isinstance(node, (ast.If, ast.While, ast.IfExp))
-                            and (args.line is None or node.lineno == args.line)),
-                           key=lambda node: (node.lineno, node.col_offset))
+        targets = source_targets(parser, args)
+        for index, target in enumerate(targets[:args.limit]):
+            if index:
+                print()
+            result = analyze(target.test)
+            print_target(target, result, args.verbose)
+            atoms = result.atoms if args.verbose else result.atoms[:8]
+            for number, atom in enumerate(atoms, 1):
+                display = result.display_node(atom.node)
+                hint = boundary_hint(display) if args.verbose else compact_hint(display)
+                print_atom(number, atom, result, hint, args.verbose)
+            if len(atoms) < len(result.atoms):
+                print(f'+{len(result.atoms) - len(atoms)} atoms; use --verbose.')
+        if not targets:
+            print('No matching expressions.')
+        if len(targets) > args.limit:
+            print(f'+{len(targets) - args.limit} targets; use --target/--line/--limit.')
         if args.verbose:
-            print("Static BVA candidates. Integer +/-1 targets require integer quantities.")
-            print("Reach the decision, satisfy evaluation guards, and check SPEC.md.")
-        for index, node in enumerate(decisions[:args.limit]):
-            rows = []
-            structure = conditions(node.test, rows)
-            if args.verbose:
-                print(f"\nLine {node.lineno}: {ast.unparse(node.test)}")
-                print(f"  Structure: {structure}")
-            else:
-                if index:
-                    print()
-                print(f"L{node.lineno}: {brief(format_logic(structure))}")
-            for i, (text, guard) in enumerate(rows[:8], 1):
-                if args.verbose:
-                    print(f"  C{i}: {text} | evaluate if {guard or 'always'}")
-                    print(f"    {boundary_hint(text)}")
-                else:
-                    guard = format_logic(guard) if guard else "always"
-                    hint = brief(compact_hint(text), 300)
-                    print(f"C{i}: {brief(text)} | guard={brief(guard)} | {hint}")
-            if len(rows) > 8:
-                print(f"+{len(rows) - 8} conditions; inspect L{node.lineno}.")
-        if not decisions:
-            print("No matching decisions.")
-        if len(decisions) > args.limit:
-            print(f"+{len(decisions) - args.limit} decisions; use --line/--limit.")
-        if args.verbose:
-            print("\nEvaluated conditions may still be masked by later operands.")
-            print("Targets are internal values, not full inputs or expected outputs.")
-            print("No solving, exhaustive combinations, execution or coverage measurement.")
-    except (OSError, SyntaxError, UnicodeError, RecursionError) as error:
-        parser.exit(1, f"Cannot analyze source: {error}\n")
+            print('Targets are internal values, not solved inputs. Reach hints are structural, not proven paths.')
+    except (OSError, SyntaxError, UnicodeError, RecursionError, ValueError) as error:
+        parser.exit(1, f'Cannot analyze expressions: {error}\n')
 
 
 if __name__ == "__main__":

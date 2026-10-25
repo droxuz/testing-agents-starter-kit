@@ -8,7 +8,8 @@ import ast
 import itertools
 from pathlib import Path
 
-from discover_conditions import conditions, format_logic
+from discover_conditions import (analyze, parser_for, source_targets,
+                                 print_target, print_atom)
 from boundary_values import compact_hint, literal, UNKNOWN
 
 
@@ -95,17 +96,15 @@ def clipped(text, limit=240):
     return text if len(text) <= limit else text[:limit - 3] + '...'
 
 
-def report(node, rows, structure, verbose=False):
-    model, selected, pairs, notes = plan(structure, rows)
-    print(f'L{node.lineno}: {format_logic(structure)}')
-    if verbose:
-        print('Source: ' + ast.unparse(node.test))
-    for index, (text, guard) in enumerate(rows):
-        guard = format_logic(guard) if guard else 'always'
-        hint = compact_hint(text)
-        if not verbose:
-            text, hint = clipped(text), clipped(hint)
-        print(f'C{index + 1}: {text} | guard={guard} | {hint}')
+def report(target, result, verbose=False):
+    print_target(target, result, verbose)
+    for index, atom in enumerate(result.atoms, 1):
+        hint = compact_hint(result.display_node(atom.node))
+        print_atom(index, atom, result, hint, verbose)
+    if target.unreachable:
+        print('No pairs: structurally unreachable after a block exit.')
+        return
+    model, selected, pairs, notes = plan(result.structure, result.rows)
     labels = {bits: f'R{i}' for i, bits in enumerate(selected, 1)}
     for bits in selected:
         outcome, trace = model[bits]
@@ -116,10 +115,9 @@ def report(node, rows, structure, verbose=False):
             for i, (first, second) in pairs.items()))
     for index, note in notes.items():
         print(f'C{index + 1}: {note}')
-    # Common variables can couple conditions; no domain/constraint solver is used.
     uses = {}
-    for index, (text, _) in enumerate(rows):
-        names = {part.id for part in ast.walk(ast.parse(text, mode='eval'))
+    for index, atom in enumerate(result.atoms):
+        names = {part.id for part in ast.walk(atom.node)
                  if isinstance(part, ast.Name) and part.id not in {'len', 'abs', 'min', 'max'}}
         for name in names:
             uses.setdefault(name, set()).add(index + 1)
@@ -129,48 +127,32 @@ def report(node, rows, structure, verbose=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('source', nargs='?', default='solution.py')
-    parser.add_argument('--line', type=int, help='decision source line; includes simple decisions')
-    parser.add_argument('--limit', type=int, default=3, help='max compound decisions (1-30; default 3)')
-    parser.add_argument('--max-atoms', type=int, default=6, help='enumeration bound (1-8; default 6)')
-    parser.add_argument('--verbose', action='store_true', help='full expressions and source')
+    parser = parser_for(__doc__, 3)
+    parser.add_argument('--max-atoms', type=int, default=6, help='enumeration bound 1-8; default 6')
     args = parser.parse_args()
-    if not 1 <= args.limit <= 30 or not 1 <= args.max_atoms <= 8:
-        parser.error('--limit must be 1-30 and --max-atoms 1-8')
-    if args.line is not None and args.line < 1:
-        parser.error('--line must be positive')
-    path = Path(args.source).resolve()
-    if not path.is_relative_to(Path.cwd().resolve()):
-        parser.error('source must be inside the current task folder')
+    if not 1 <= args.max_atoms <= 8:
+        parser.error('--max-atoms must be 1-8')
     try:
-        if path.stat().st_size > 200_000:
-            parser.error('source must not exceed 200 KB')
-        tree = ast.parse(path.read_text(encoding='utf-8-sig'))
-        decisions = sorted((node for node in ast.walk(tree)
-                            if isinstance(node, (ast.If, ast.While, ast.IfExp))
-                            and (args.line is None or node.lineno == args.line)),
-                           key=lambda node: (node.lineno, node.col_offset))
+        decisions = source_targets(parser, args)
         targets = []
-        for node in decisions:
-            rows = []
-            structure = conditions(node.test, rows)
-            if len(rows) > 1 or args.line is not None:
-                targets.append((node, rows, structure))
+        for target in decisions:
+            result = analyze(target.test)
+            if len(result.atoms) > 1 or args.line is not None or args.target:
+                targets.append((target, result))
         if not targets:
-            print('No matching compound decisions; use coverage_report or --line.')
+            print('No matching compound expressions; use coverage_report or --line.')
             return
         print('Abstract unique-cause targets. Rows A/E=assumed/evaluated; -=skipped.')
-        print('Check SPEC/reachability; solve inputs and oracles. Integer BVA assumes integers.')
-        for index, (node, rows, structure) in enumerate(targets[:args.limit]):
+        print('Reach hints are snapshots, not solved paths. Check SPEC/coupling; +/-1 assumes integers.')
+        for index, (target, result) in enumerate(targets[:args.limit]):
             if index:
                 print()
-            if len(rows) > args.max_atoms:
-                print(f'L{node.lineno}: {len(rows)} conditions; exceeds --max-atoms {args.max_atoms}.')
+            if len(result.atoms) > args.max_atoms:
+                print(f'{target.target_id}: {len(result.atoms)} atoms; exceeds --max-atoms {args.max_atoms}.')
                 continue
-            report(node, rows, structure, args.verbose)
+            report(target, result, args.verbose)
         if len(targets) > args.limit:
-            print(f'+{len(targets) - args.limit} decisions; use --line/--limit.')
+            print(f'+{len(targets) - args.limit} targets; use --target/--line/--limit.')
     except (OSError, SyntaxError, UnicodeError, RecursionError, ValueError) as error:
         parser.exit(1, f'Cannot plan targets: {error}\n')
 

@@ -58,27 +58,51 @@ instance_template: |
      gap remains, or a pass makes no improvement. If measurement fails, continue
      source analysis without claiming coverage. Always proceed to behavioral cases.
 
-  ## Phase 3: Selective Boundary and Decision Analysis
-  5. Run `bva_report`. Prioritize meaningful simple comparisons as well as compound
-     decisions. Make the ACTUAL compared runtime quantities fall below, equal to,
-     and above relevant boundaries where feasible and observably distinct.
-     Trace how inputs produce totals, lengths, indices, or other computed operands.
-     Respect outer paths and operand dependencies. Use adjacent integers for integer
-     domains and SPEC-appropriate precision for floats. Do not mechanically create
-     three tests or repeat structural extremes for every reported comparison.
-  6. If useful compound decisions remain, run `mcdc_targets.py` through PATH. It
-     reuses discovery and BVA; do not repeat that analysis with the helper scripts.
-     The default report selects only the first three compound decisions. Use
-     `--line N` to select an important decision instead; allow at most one further
-     targeted invocation for a useful omitted decision.
-     - Reuse existing independence-pair members and add only missing useful inputs.
-     - Rows are abstract assignments, not solved inputs or measured MC/DC coverage.
-       Respect short-circuit guards, shared variables, outer paths, and prior returns;
-       skip infeasible combinations. Trace concrete inputs to the intended decision.
-     - Decision T/F is not the expected method return value. Assert the observable
-       result and check that an incorrect decision could propagate to that result.
-     - Equal Boolean rows can hide different arithmetic/indexing faults; a minimal
-       MC/DC pair set is not a complete behavioral suite.
+  ## Phase 3: Choose Analysis Tools Independently
+  5. Select tools according to the information missing from your current analysis.
+     Each command reads the source itself. No command requires another report to
+     have been run first, and there is no required discovery -> BVA -> MC/DC chain.
+     Call the smallest useful tool directly through PATH:
+     - `discover_conditions.py`: locate expressions, condition atoms, local
+       short-circuit guards, enclosing-path hints, and stable target IDs. Useful
+       when structure or target selection is unclear; otherwise skip it.
+     - `boundary_values.py`: get boundary/truth-value hints for simple or compound
+       expressions. Call it directly for a known source line or target; discovery
+       is optional. The older `bva_report` is an alternative quick comparison scan,
+       not a prerequisite. Avoid requesting both for the same information.
+     - `mcdc_targets.py`: request abstract independence pairs for a useful compound
+       expression. Call it directly when the target is known. It already includes
+       guards and boundary hints, so separate reports are optional, not forbidden;
+       request them only to resolve an unanswered question.
+     Use `--line N`, `--line N --column K`, or `--target 'ID'` to focus any of the
+     three .py commands. Copy the exact ID from a report; columns are zero-based
+     UTF-8 offsets. Quote IDs containing shell metacharacters. Use `--verbose` only
+     when full context is needed. Defaults show only a prefix of the targets:
+     discovery 8, BVA 4, MC/DC 3 compound expressions. These are not priority rankings.
+     Aim for at most three analysis invocations initially. Spend further calls only
+     on a specific unresolved gap; do not run all tools merely to complete a sequence.
+  6. Turn useful targets into discriminating tests, regardless of the tool selected:
+     - Include simple comparisons. Make the ACTUAL compared runtime quantities fall
+       below, equal to, and above useful boundaries where feasible and distinct.
+       Trace computed operands back to valid inputs. Use adjacent integers only
+       for integer domains and suitable precision for floats. Avoid three cases
+       per comparison or repeated structural extremes without a behavioral reason.
+     - `reached_if~`, scalar-equivalence hints, and effect/exception flags are
+       conservative structural hints, not solved paths or a full dataflow model.
+       Conditions are snapshots at their evaluation point. Trace assignments, loop
+       updates, earlier exits, shared operands, and SPEC constraints yourself.
+       Absence of a warning does not prove feasibility or freedom from side effects.
+     - In a chained comparison, V aliases denote an operand evaluated once and
+       reused. Do not treat that operand as independent values or repeat its call.
+     - MC/DC rows are abstract truth assignments with short-circuit traces, not
+       concrete inputs or measured coverage. Check repeated/equivalent conditions,
+       shared variables, and reachability; skip infeasible assignments. Reuse
+       existing pair members and add only useful missing cases.
+     - C truth is before enclosing NOT. Decision T/F is not the method return;
+       Python and/or may return an operand. Assert the exact SPEC-defined result
+       and verify that a plausible incorrect decision could change that result.
+     - Equal Boolean rows can hide arithmetic/indexing faults. Continue behavioral
+       testing beyond a minimal pair set. None of these static tools measures kills.
 
   ## Phase 4: Fault-Oriented Cases
   7. Select distinct, applicable cases from this checklist within the remaining budget:
