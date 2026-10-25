@@ -92,7 +92,7 @@ def main() -> int:
             if op_name in RELATIONAL_OPS:
                 op_sym = RELATIONAL_OPS[op_name]
                 print(f"Line {lineno}: {line_text}")
-                print(f"  * TIE TARGET: Test equality ({left} == {right}). Kills '{op_sym}' -> '{swap}' mutant.")
+                print(f"  * TIE TARGET: Test equality ({left} == {right}). Targets '{op_sym}' -> '{swap}'; verify observable output differences.")
                 print(f"  * OFF-BY-ONE: Test adjacent values ({left} adjacent to {right}).\n")
             elif op_name in ("Eq", "NotEq"):
                 print(f"Line {lineno}: {line_text}")
@@ -108,11 +108,11 @@ def main() -> int:
         print("No explicit relational comparisons found.\n")
 
     print("=== 2. STRUCTURAL & GENERAL BOUNDARY TARGETS ===")
-    print("  * Minimal Container Size: Test input with len=1 and len=2 (kills loop boundary mutants).")
+    print("  * Minimal Container Size: Test the smallest SPEC-valid sizes; consider len=1 or len=2 when allowed.")
     print("  * Homogeneous Tie Input: Test container with all identical elements [v, v, v, ...] (kills tie-breaker mutants).")
     if 0 in seen_consts or -1 in seen_consts:
-        print("  * Numeric Extremes: Test with 0, negative values (-1), or duplicate maximum elements.")
-    print("\nAction: Add 3–5 high-potency boundary tests to tests/test_whitebox.py near the TOP, then run fix_oracles.")
+        print("  * Numeric Extremes: Consider 0, -1, or duplicate maxima only when SPEC permits.")
+    print("\nAction: Select useful missing cases, verify expected outputs from SPEC, and validate with run_tests. Static targets do not prove kills.")
     return 0
 
 

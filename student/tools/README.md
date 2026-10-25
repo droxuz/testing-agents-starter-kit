@@ -30,3 +30,38 @@ If two visible folders contain a tool with the same name, the mode's own folder 
 - `blackbox/list_constraints`: lists numeric constraints from the spec with boundary values.
 - `whitebox/run_tests`: runs the tests against `solution.py`.
 - `whitebox/coverage_report`: shows missed lines and branches.
+
+
+## Selective white-box analysis
+
+The white-box prompt explains when to choose a tool, what its output means,
+and the next useful action. Tool help supplies detailed flags. There is no
+mandatory AST -> BVA -> MC/DC sequence; mcdc_targets.py can reuse AST/BVA internally.
+
+- discover_conditions.py: decision atoms and short-circuit guards.
+- boundary_values.py: comparison boundary hints; bva_report offers a broad alternative.
+- mcdc_targets.py: abstract independence pairs, not solved inputs or measured MC/DC.
+- mutation_report: executed feedback from sampled local operator mutants.
+  Start with `mutation_report --limit 6`; focus with `--line N --limit 2`.
+  JSON shows killed IDs and remaining changes. Fix original test errors before
+  interpreting results; only passing tests within the combined call budget can
+  kill mutants. Failed original tests still spend calls. Timeouts, errors, and
+  skipped/unexecuted tests are inconclusive. A survivor need not be killable.
+  Rerun the same sample after additions; different samples have different denominators.
+  Use `mutation_report --limit 0 --max-calls 50` to check executed calls without mutation.
+
+Mutation feedback is a small MuTAP-style adaptation, not a reproduction of the
+paper's complete implementation. It uses only disposable copies of task-local
+source and tests, without benchmark bugs, benchmark mutants, or harness imports.
+It leaves the implementation and inherited tests unchanged. Expected results
+come from SPEC or an independently checked oracle; fix_oracles is not automatic.
+The legacy check_tests budget is a static estimate; use the executed-call report
+to catch loops and parametrization. This tool does not establish oracle correctness,
+flakiness, achieved MC/DC, or performance against held-out bugs.
+
+Offline tool checks, without model calls:
+
+```bash
+python -m unittest discover -s student/tools/whitebox -p _test_mutation_report.py
+python -m testagent.submission student
+```
