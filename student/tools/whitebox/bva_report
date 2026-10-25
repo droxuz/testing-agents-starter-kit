@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""bva_report: inspect solution.py for relational comparisons and boundary constants.
+Usage: bva_report
+Output format:
+- Relational targets: Line number, comparison, and tests for equality (L == R) & off-by-one (L = R +- 1)
+- Structural targets: Minimal container sizes (len=1, 2) and homogeneous arrays ([v, v, ...])"""
+
+import ast
+import sys
+from pathlib import Path
+
+RELATIONAL_OPS = {"Lt": "<", "LtE": "<=", "Gt": ">", "GtE": ">="}
+EQUALITY_OPS = {"Eq": "==", "NotEq": "!=", "In": "in", "NotIn": "not in", "Is": "is", "IsNot": "is not"}
+OP_SWAP = {
+    "Lt": "<=",
+    "LtE": "<",
+    "Gt": ">=",
+    "GtE": ">",
+    "Eq": "!=",
+    "NotEq": "==",
+    "In": "not in",
+    "NotIn": "in",
+    "Is": "is not",
+    "IsNot": "is",
+}
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+
+    sol_path = Path("solution.py")
+    if not sol_path.exists():
+        print("ERROR: solution.py not found.")
+        return 1
+
+    src = sol_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        print(f"ERROR: Cannot parse solution.py: {e}")
+        return 1
+
+    lines = src.splitlines()
+
+    comparisons = []
+    seen_comps = set()
+    constants = []
+    seen_consts = set()
+
+    for node in ast.walk(tree):
+        # 1. Relational comparisons (<, <=, >, >=, ==, !=, in, not in, is, is not)
+        if isinstance(node, ast.Compare):
+            curr_left = node.left
+            for op, comp in zip(node.ops, node.comparators):
+                op_name = type(op).__name__
+                if op_name in RELATIONAL_OPS or op_name in EQUALITY_OPS:
+                    left_str = ast.unparse(curr_left)
+                    right_str = ast.unparse(comp)
+                    key = (node.lineno, left_str, op_name, right_str)
+                    if key not in seen_comps:
+                        seen_comps.add(key)
+                        line_text = lines[node.lineno - 1].strip() if 0 <= node.lineno - 1 < len(lines) else ""
+                        comparisons.append((node.lineno, line_text, left_str, op_name, right_str))
+                curr_left = comp
+
+        # 2. Integer constants in expressions/conditions (boundary offsets)
+        elif isinstance(node, ast.Constant) and type(node.value) is int:
+            val = node.value
+            if val not in seen_consts and val in (0, 1, 2, -1):
+                seen_consts.add(val)
+                constants.append(val)
+
+    comparisons.sort(key=lambda x: (x[0], x[2]))
+
+    print("=== 1. RELATIONAL COMPARISON TARGETS (TIES & OFF-BY-ONES) ===")
+    if comparisons:
+        for lineno, line_text, left, op_name, right in comparisons:
+            swap = OP_SWAP.get(op_name, "swap")
+            if op_name in RELATIONAL_OPS:
+                op_sym = RELATIONAL_OPS[op_name]
+                print(f"Line {lineno}: {line_text}")
+                print(f"  * TIE TARGET: Test equality ({left} == {right}). Kills '{op_sym}' -> '{swap}' mutant.")
+                print(f"  * OFF-BY-ONE: Test adjacent values ({left} adjacent to {right}).\n")
+            elif op_name in ("Eq", "NotEq"):
+                print(f"Line {lineno}: {line_text}")
+                print(f"  * EQUALITY: Test equal case ({left} == {right}).")
+                print(f"  * INEQUALITY: Test not equal case ({left} != {right}).\n")
+            elif op_name in ("In", "NotIn"):
+                print(f"Line {lineno}: {line_text}")
+                print(f"  * MEMBERSHIP: Test item present ({left} in {right}) and absent ({left} not in {right}).\n")
+            elif op_name in ("Is", "IsNot"):
+                print(f"Line {lineno}: {line_text}")
+                print(f"  * IDENTITY: Test {left} is {right} and {left} is not {right}.\n")
+    else:
+        print("No explicit relational comparisons found.\n")
+
+    print("=== 2. STRUCTURAL & GENERAL BOUNDARY TARGETS ===")
+    print("  * Minimal Container Size: Test input with len=1 and len=2 (kills loop boundary mutants).")
+    print("  * Homogeneous Tie Input: Test container with all identical elements [v, v, v, ...] (kills tie-breaker mutants).")
+    if 0 in seen_consts or -1 in seen_consts:
+        print("  * Numeric Extremes: Test with 0, negative values (-1), or duplicate maximum elements.")
+    print("\nAction: Add 3–5 high-potency boundary tests to tests/test_whitebox.py near the TOP, then run fix_oracles.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
