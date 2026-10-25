@@ -7,6 +7,7 @@ Options:
   --whitebox-only   Run only tests/test_whitebox.py.
 """
 
+import os
 import subprocess
 import sys
 
@@ -21,6 +22,9 @@ def main() -> int:
     args = sys.argv[1:]
     if "--whitebox-only" in args:
         args = [a for a in args if a != "--whitebox-only"]
+        if not os.path.exists("tests/test_whitebox.py"):
+            print("tests/test_whitebox.py does not exist yet. Write your tests first.")
+            return 0
         target = ["tests/test_whitebox.py"]
     else:
         target = ["tests"]
