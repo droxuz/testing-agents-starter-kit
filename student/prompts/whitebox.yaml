@@ -20,36 +20,114 @@ instance_template: |
   - CRITICAL: NEVER include the string "solution.py" anywhere in tests, docstrings, or comments.
     Any test file containing "solution.py" is rejected by the evaluator with 0 score.
   - NEVER write constant assertions like `assert True`.
-  - Total call budget is {{max_calls}} calls across both test files. Keep `{{test_file}}` under 15–20 tests.
+  - Total allowance is {{max_calls}} target-method calls across BOTH files.
+  Baseline calls consume it first. Parameters, fixtures, helpers, loops,
+  and repeated calls count; test-function count does not.
   - Put your most potent edge-case and boundary tests at the TOP of `{{test_file}}`.
 
   ## Execution Pipeline (Follow in exact order)
 
   ### Phase 1: Structural Coverage
-  1. Run `coverage_report` to identify missed lines or branches in `solution.py`.
-  2. If any lines or branches are missed, write tests in `{{test_file}}` to cover them.
-  3. Verify with `run_tests --whitebox-only`.
-  4. When branch coverage reaches 100% (or was already 100%), or when two attempts in a row fail to improve coverage, PROCEED IMMEDIATELY TO PHASE 2. DO NOT STOP.
+  1. Read `solution.py` and `tests/test_blackbox.py` to understand the
+   implementation and existing cases. Preserve both files.
+  2. Run `coverage_report` to identify missed lines or branches in
+   `solution.py`.
+  3. If useful reachable gaps exist:
+   - Write complementary tests ONLY in `{{test_file}}`.
+   - Use SPEC-valid inputs and exact expected results.
+   - Avoid duplicating cases in `tests/test_blackbox.py`.
+   - Keep calls across both files within {{max_calls}}.
+  4. Run `run_tests --whitebox-only`. Correct failures in `{{test_file}}`
+   before continuing, then rerun `coverage_report` to measure improvement.
+  5. Perform at most TWO coverage-directed refinement passes.
+   When branch coverage reaches 100% (or was already 100%), no useful
+   reachable gaps remain, or the two-pass allowance is exhausted,
+   PROCEED IMMEDIATELY TO PHASE 2.
+   Do not finish the task solely because coverage is complete.
 
-  ### Phase 2: Relational Boundaries & Constant Extremes
-  5. Run `bva_report`.
-  6. For each reported comparison and boundary target:
-     - Write tests for EQUALITY / TIE cases (e.g. left == right).
-     - Write tests for OFF-BY-ONE boundaries (e.g. left is adjacent to right).
-     - Write tests for STRUCTURAL EXTREMES (minimal size len=1, 2, and all-identical elements [v, v, v]).
-     - Add these tests to `{{test_file}}`. Place high-potency boundary tests near the TOP.
-  7. Verify with `run_tests --whitebox-only`.
+  ### Phase 2: Select Complementary Behavioral Cases
+  6. Select tools independently according to the unanswered question:
+   - `boundary_values.py --line N` for a known comparison or boundary.
+   - `discover_conditions.py` when locating decisions or understanding
+     guards is necessary.
+   - `mcdc_targets.py --line N --limit 1` for a useful compound decision.
+    Keep the default six-atom bound; use `--max-atoms 8` for a relevant
+    larger decision when resources permit.
 
-  ### Phase 3: Automated Oracle Alignment
-  8. Run `fix_oracles`. This updates assertions in `{{test_file}}` to match `solution.py` return values,
-     eliminating wrong-oracle test penalties.
+   Replace N with the relevant source line. Aim for at most TWO initial
+   static-analysis calls. Do not require discovery or either BVA tool
+   before MC/DC. MC/DC already includes guards and boundary hints.
 
-  ### Phase 4: Budget & Submission Gate
-  9. Run `check_tests`.
-     - If any errors or budget warnings appear, fix them.
-     - If calls exceed {{max_calls}}, prune redundant tests from the bottom of `{{test_file}}`.
-  10. When `check_tests` reports OK, complete the task by running:
-      `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+   Interpret MC/DC output as:
+   `R1: TTF/TT- -> T`
+   assumed condition values / actual evaluation trace -> decision outcome.
+   For `C1 and (C2 or C3)`, this means C1=True, C2=True, C3=False;
+   C3 is skipped by short-circuiting, and the decision is True.
+   The decision outcome is not necessarily the method's returned value.
+
+   Use MC/DC selectively:
+   - Choose one decision whose conditions could change observable behavior.
+   - Count remaining calls across `tests/test_blackbox.py` and
+     `{{test_file}}` before adding cases.
+   - Reuse existing concrete inputs that satisfy selected rows.
+   - Add only missing, useful cases to `{{test_file}}`.
+   - Check shared variables, earlier guards, and SPEC constraints.
+     Abstract rows may be impossible to realize.
+   - Skip a row when a valid concrete input cannot be constructed quickly;
+     do not spend repeated turns solving it.
+   - Claim an independence pair only when both concrete cases satisfy
+     its required condition assignments and decision outcomes.
+   - If there are no useful compound decisions, or the tool reports
+     none, skip MC/DC and continue selecting behavioral cases.
+  7. Add distinct cases within the remaining target-call allowance:
+   - Useful equality/tie and adjacent-boundary cases.
+   - Minimum valid sizes, first/last positions, and late improvements.
+   - Unequal updates, initialization, duplicates, ordering, and arithmetic.
+   - Exact-versus-modulo behavior where relevant.
+   Select cases that distinguish plausible faults; do not create tests
+   for every reported target or checklist item.
+  8. Derive exact expected results and use SPEC-valid inputs.
+   Static targets and MC/DC rows are not solved inputs or proven paths.
+   Check shared-variable constraints and reachability. Never compute
+   expected values by calling the target inside a test.
+  9. Run `run_tests --whitebox-only` immediately after each meaningful batch.
+   Repair failures before adding more tests.
+
+  ### Phase 3: Diagnose and Repair
+  10. When tests fail:
+   - Inspect pytest output; use `oracle_report` if more input/output
+     observations are needed.
+   - Use `fix_oracles` only for supported equality assertions.
+     It may skip unsupported assertions and does not guarantee correctness.
+   - Review edits, preserve intended inputs and strong assertions, and
+     rerun `run_tests --whitebox-only` after any correction.
+   Preserve inherited blackbox failures; do not edit the baseline.
+
+  ### Phase 4: Optional Mutation Refinement
+  11. If resources remain, run `run_tests` to check the combined suite.
+    If it passes, optionally run:
+    `mutation_probe --method {{func_name}} --limit 6 --test-timeout 3 --timeout 30`
+
+    - Skip probing if inherited baseline failures prevent a passing suite.
+    - Investigate at most one useful survivor initially.
+    - Equivalent variants may survive; timeouts and invalid runs are not kills.
+    - If a valid distinguishing input exists, add a test to `{{test_file}}`
+      with an expected result justified against the original reference and SPEC.
+    - Rerun validation after any edit.
+    - This local sample is not the evaluator's mutation score.
+
+  ### Phase 5: Final Validation and Submission
+  12. Run `run_tests` to validate both files.
+  13. Run `call_budget_report --method {{func_name}} --budget {{max_calls}}`.
+  14. Run `check_tests`.
+  15. Repair issues ONLY in `{{test_file}}`. After any test edit, repeat
+    execution, actual call counting, and `check_tests`.
+    Preserve `tests/test_blackbox.py`.
+  16. When your whitebox tests pass, no new combined-suite failures were
+    introduced, checks are resolved apart from identified inherited
+    baseline issues, and observed calls are within {{max_calls}},
+    briefly report inherited failures and immediately run:
+    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
 
   ## Tools Available
   {{tools}}
