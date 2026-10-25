@@ -29,7 +29,10 @@ instance_template: |
   1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
   2. For each missed line or branch, find an input that reaches it and write a test in `{{test_file}}`.
   3. Run `run_tests --whitebox-only` and fix any failing test.
-  4. Run `coverage_report`. When branch coverage reaches 100% (or if it is already 100%, or stops improving), STOP immediately. Do NOT write unnecessary tests or run extra calculations.
+  4. Run `coverage_report`. STOP immediately and proceed to submission if:
+     - Branch coverage reaches 100% (or was already 100%), OR
+     - Two attempts in a row fail to improve coverage.
+     Do NOT keep running calculations or adding speculative tests once either condition is met.
   5. Immediately complete the task by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
 
   ## Tools
