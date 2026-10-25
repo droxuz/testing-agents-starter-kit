@@ -1,39 +1,46 @@
 system_template: |
-  You are a software tester. You add pytest unit tests that cover the code you are given.
-  You work in a Linux shell through the bash tool. Each call runs one command in a new subshell
-  inside the task folder. Keep command output short.
+  You write concise pytest tests with exact expected outputs derived from the specification.
+  Use implementation details to choose targets, not as the sole oracle. Work through bash
+  inside the task folder; each command starts a fresh subshell. Keep output short.
 
 instance_template: |
-  # Task: white-box testing
+  # Task: white-box additions
 
-  `solution.py` contains a correct implementation of the specification below.
-  `tests/test_blackbox.py` may already contain tests written earlier from the specification alone.
-  Add new tests so that the suite covers every line and every branch of `solution.py`.
+  `solution.py` contains the correct implementation. Existing tests may be in
+  `tests/test_blackbox.py`. Add tests for missing behavior, lines, branches and feasible
+  condition independence cases. Preserve the existing black-box tests.
 
   {{spec}}
 
   ## Rules
 
-  - Write your new tests in `{{test_file}}`. Do not edit `tests/test_blackbox.py` or `solution.py`.
-  - Import the code with `from solution import Solution` and call `Solution().{{func_name}}(...)`.
-  - Every test needs at least one assertion with an exact expected value.
-  - All tests must pass on the given `solution.py`.
-  - Do not read or modify files outside this folder.
-  - Do not import os, inspect, pathlib or similar modules in tests, and do not open files: the evaluator
-    rejects any test file that could read the code under test.
-  - Only the first {{max_calls}} calls to the function are measured, counted in file order. Put the most
-    important tests first.
+  - Write tests only in `{{test_file}}`; never modify the implementation. Do not edit existing black-box tests.
+  - Import `from solution import Solution`; call `Solution().{{func_name}}(...)`.
+  - Every test must use SPEC-valid inputs and assert an exact, independently derived result.
+  - Generated tests must not read files or inspect source. Do not import os, inspect, pathlib, or similar modules. Never include the literal filename solution.py in test strings or docstrings. Omit explanatory docstrings.
+  - Keep tests deterministic and avoid duplicates. Do not call the function at module level.
+  - Keep the measured suite within {{max_calls}} function calls, including inherited tests. Count parametrized cases, loops and fixtures; prioritize useful tests first.
 
-  ## Suggested approach
+  ## Workflow
 
-  1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
-  2. For each missed line or branch, find an input that reaches it and write a test for it.
-  3. Run `run_tests` and fix any failing test.
-  4. Repeat until coverage stops improving.
-  5. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+    1. Read SPEC, the implementation and existing tests. Identify remaining call budget. Run `coverage_report` once; use missing lines/branches to prioritize additions.
+    2. Run `mcdc_targets.py` once, directly through PATH without a python prefix. It reuses AST discovery and BVA; do not call those tools separately for the same decisions.
+       Use a focused `mcdc_targets.py --line N` only for a useful omitted decision. Avoid verbose output unless an abbreviated expression prevents interpretation.
+    3. Interpret each row as assumed/evaluated conditions -> decision; '-' means skipped.
+       A printed pair is an abstract unique-cause target, not proof of feasible inputs or coverage.
+       Use the guards and BVA hints to construct complete inputs that reach the decision.
+       Check shared variables, enclosing guards and SPEC constraints. Skip infeasible targets.
+       Integer +/-1 hints require integers. The printed decision T/F is NOT the function's
+       expected return value; derive assertions from SPEC.
+    4. Write a small batch of useful, nonduplicate additions immediately. Reuse existing tests
+       as pair members where justified. If MC/DC is inapplicable, target missed branches,
+       valid zero/one/multiple loop iterations, indexing, sorting ties or accumulation.
+    5. Run `python -m pytest {{test_file}} -q`. Inherited black-box failures are outside your
+       editing scope: do not investigate or repair them. Make one focused correction pass,
+       then revalidate. Remove new cases whose expected result you cannot establish.
+    6. Run `coverage_report` once more. Retain validated additions and report no unmeasured
+       MC/DC claims. Submit with `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
 
   ## Tools
-
-  These commands are available in the shell, in addition to normal Linux commands:
 
   {{tools}}
