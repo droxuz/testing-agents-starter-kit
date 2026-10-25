@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Probe a bounded set of locally generated AST mutants; never read evaluation data.
+Usage: mutation_probe [--method NAME] [--limit 12] [--line N] [--json]
+Requires two passing reference runs. Reports survivors, kills, invalid runs and timeouts.
+Source/tests stay unchanged; equivalents may survive. This is not the evaluator's score.
+"""
+import sys
+import time
+
+from _mutations import candidates
+from _runtime import common_parser, execute, json_output, prepare, suite_passed
+
+
+def probe(root, source, method, *, limit=12, line=None, timeout=60, test_timeout=4):
+    deadline = time.monotonic() + timeout
+
+    def run(text):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {'status': 'not_run'}
+        return execute(root, text, method, timeout=min(test_timeout, remaining))
+
+    baselines = [run(source)]
+    if suite_passed(baselines[0]):
+        baselines.append(run(source))
+    if len(baselines) != 2 or not all(suite_passed(b) and b.get('calls_total', 0) > 0 for b in baselines):
+        return {'tool': 'mutation_probe', 'status': 'reference_not_ready', 'reference_runs': baselines,
+                'mutants': [], 'note': 'Fix reference-suite failures, missing calls or timeouts before interpreting mutant failures.'}
+    signature = lambda report: [(t['nodeid'], t['outcome'], t['calls']) for t in report['tests']]
+    if signature(baselines[0]) != signature(baselines[1]):
+        return {'tool': 'mutation_probe', 'status': 'unstable_reference', 'reference_runs': baselines,
+                'mutants': [], 'note': 'Two reference executions disagree; investigate before interpreting mutation results.'}
+    expected_ids = [t['nodeid'] for t in baselines[0]['tests']]
+    rows = []
+    for mutant in candidates(source, method, limit, line):
+        execution = run(mutant['source'])
+        row = {key: value for key, value in mutant.items() if key != 'source'}
+        failed = [t['nodeid'] for t in execution.get('tests', []) if t['outcome'] == 'failed']
+        if execution['status'] in {'timeout', 'not_run'}:
+            outcome = execution['status']
+        elif execution['status'] != 'completed' or execution.get('collection_errors'):
+            outcome = 'invalid'
+        elif [t['nodeid'] for t in execution['tests']] != expected_ids:
+            outcome = 'inconclusive'
+        elif failed and execution.get('pytest_exit_code') == 1:
+            outcome = 'killed'
+        elif suite_passed(execution) and [t['outcome'] for t in execution['tests']] == [t['outcome'] for t in baselines[0]['tests']]:
+            outcome = 'survived'
+        else:
+            outcome = 'inconclusive'
+        row['outcome'] = outcome
+        row['failing_tests'] = failed[:8]
+        if execution.get('detail'):
+            row['detail'] = execution['detail']
+        rows.append(row)
+    counts = {key: sum(r['outcome'] == key for r in rows) for key in ('killed', 'survived', 'timeout', 'invalid', 'inconclusive', 'not_run')}
+    return {'tool': 'mutation_probe', 'status': 'completed', 'method': method,
+            'reference_tests': len(expected_ids), 'reference_calls': baselines[0]['calls_total'],
+            'counts': counts, 'mutants': rows,
+            'notes': ['Mutants are generated locally from this task method, not evaluator/hidden data.',
+                      'All candidate runs are isolated; original source and tests are not rewritten.',
+                      'Timeouts/invalid/inconclusive runs are not kills; equivalent mutants may survive.',
+                      'Two matching reference runs reduce obvious instability but do not prove absence of flakiness.',
+                      'This bounded sample is not a hard-mutant score or proof that a survivor has a valid distinguishing input.']}
+
+
+def main():
+    parser = common_parser(__doc__)
+    parser.set_defaults(timeout=60)
+    parser.add_argument('--limit', type=int, default=12, help='max generated mutants, 1-30; default 12')
+    parser.add_argument('--line', type=int, help='mutate only this exact source line')
+    parser.add_argument('--test-timeout', type=float, default=4, help='seconds per isolated suite, 0.1-20; default 4')
+    args = parser.parse_args()
+    if not 1 <= args.limit <= 30 or not 0.1 <= args.test_timeout <= 20 or args.line is not None and args.line < 1:
+        parser.error('--limit must be 1-30, --test-timeout 0.1-20, and --line positive')
+    try:
+        root, source, method = prepare(args)
+        report = probe(root, source, method, limit=args.limit, line=args.line,
+                       timeout=args.timeout, test_timeout=args.test_timeout)
+        if args.json:
+            json_output(report)
+        else:
+            print(f"Local mutation probe: {report['status']}; target=Solution.{method}")
+            if report['status'] != 'completed':
+                print(report['note'])
+                for baseline in report.get('reference_runs', []):
+                    print(f"  reference: {baseline['status']}, pytest_exit={baseline.get('pytest_exit_code')}")
+            else:
+                print(report['counts'])
+                for mutant in report['mutants']:
+                    print(f"{mutant['id']} L{mutant['line']} [{mutant['category']}] {mutant['outcome']}: {mutant['before']} -> {mutant['after']}")
+                print('Review surviving changes against SPEC. Equivalent mutants and timeouts are not detected bugs.')
+        return 0 if report['status'] == 'completed' else 1
+    except (ValueError, OSError, SyntaxError, RecursionError) as error:
+        parser.exit(2, f'Cannot probe mutations: {error}\n')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -72,3 +72,85 @@ Run the analysis regression checks from the repository root with:
 ```bash
 python -m unittest discover -s student/tools/whitebox/_tests -p 'test_*.py'
 ```
+
+## Optional execution and behavioral diagnostics
+
+These five commands are independent additions for white-box/combined mode. No
+prompt YAML is changed to require them. As with every executable tool, the harness
+automatically includes their `--help` text in the available-tools description.
+They do not call one another's CLI or use evaluator/hidden bug or mutant data.
+All support `--json`; execution tools accept `--method NAME` when inference from
+SPEC or the sole public `Solution` method is ambiguous.
+
+| Command | Purpose | Default bound |
+|---|---|---|
+| `oracle_report` | Execute tests; show failing IDs, pytest details, exceptions, and observed reference returns without rewriting assertions | 20 seconds |
+| `call_budget_report` | Count actual target entries, by test and file, with an ordered budget projection | 50 calls allowed; 20-second execution |
+| `fault_targets` | Suggest source-based arithmetic, update, indexing, initialization, ordering, loop-state, and modulo fault hypotheses | 10 targets |
+| `case_probe` | Execute an explicitly supplied JSON candidate set; report results, input changes, and line-transition arcs | 12 candidates; 20 seconds |
+| `mutation_probe` | Run tests on locally generated arithmetic, constant, comparison, update, selection, Boolean, and loop-exit mutations | 12 mutants; 4 seconds per suite; 60 seconds overall |
+
+Examples, run from the task workspace:
+
+```bash
+oracle_report
+call_budget_report --budget 50
+fault_targets --method solve --limit 8
+case_probe candidates.json --method solve
+mutation_probe --method solve --limit 8 --line 12
+```
+
+Replace `solve` and line numbers with the actual target. None of these invocations
+requires another tool to run first. Runtime tools execute only `tests/test_*.py`,
+with external pytest plugins, pytest configuration discovery, and conftest loading
+disabled. Inline test fixtures and parametrization work. Temporary request/report
+files are confined to the task folder and removed after execution or a timeout.
+Tests and the reference source are not rewritten. Private `_runtime.py` and
+`_mutations.py` are shared implementation modules, not agent-visible commands.
+
+`call_budget_report` counts loops, helper calls, parametrized invocations, fixture
+setup/teardown, and calls made while tests are imported. Recursive target entries
+are counted too. The displayed budget boundary uses all observed calls in collection
+order; it is not an exact reproduction of evaluator validity/flakiness filtering or
+partial-test handling. A failing/skipped path can hide calls that would run after
+repair, so rerun after edits. Repeated input previews are hints, not automatic
+deduplication: repetition may intentionally test state. Reference module import
+itself precedes instrumentation; target calls made inside that module at import
+time are not counted. This is separate from target calls in test-module imports,
+which are counted.
+
+`oracle_report` diagnoses failures in both test files but never edits either one.
+Reference-based observations belong only in white-box/combined mode; they must not
+be exposed to black-box generation. Unsupported assertions remain ordinary pytest
+assertions: a diagnostic does not silently rewrite them or establish SPEC validity.
+
+`case_probe` accepts a JSON list, for example:
+
+```json
+[
+  {"label": "tie", "args": [[2, 2]], "kwargs": {}, "expected": 4},
+  {"label": "unequal", "args": [[2, 5]], "kwargs": {}}
+]
+```
+
+Use cases valid for the actual task; the example is only a schema. `expected` is
+optional and compared using Python equality. Arguments/results must be compatible
+with this JSON interface; arbitrary custom object construction is not supported.
+Fresh argument data and a fresh `Solution()` are used per case unless
+`--reuse-instance` explicitly requests a sequence on one instance. Module globals
+still persist within a probe. Constructors must take no required arguments.
+The maximum is 32 candidates and 100 KB of JSON. Output previews are bounded, so
+input-change detection can miss changes outside a preview. Coverage arcs are
+observed transitions, not a percentage or MC/DC coverage. Arc novelty compares
+earlier candidates, not baseline tests; equal arcs do not establish redundant cases.
+
+`mutation_probe` first requires two matching passing reference executions with
+observed target calls. It then executes fresh in-memory source variants in isolated
+subprocesses. Only the selected declared method (including nested definitions) is
+mutated, not arbitrary helper methods. Mutants are generated deterministically and
+interleaved across available mutation families; `--line` can focus a source site.
+Import/collection failures, timeouts, changed test collections, and other ambiguous
+outcomes are reported separately rather than counted as kills. Two baseline runs
+are an instability check, not proof of nonflakiness. Equivalent mutants may survive;
+the bounded local sample is not the evaluator's mutation or hard-mutant score.
+No report from hidden evaluation is read by these tools.

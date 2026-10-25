@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Probe a small JSON candidate set against the reference; do not write tests or oracles.
+Usage: case_probe cases.json [--method NAME] [--max-cases 12] [--reuse-instance] [--json]
+File: [{"label":"tie","args":[[1,1]],"kwargs":{},"expected":2}]; expected is optional.
+Reports outputs, exceptions, input changes and execution arcs; SPEC validity is your job.
+"""
+import json
+import sys
+
+from _runtime import common_parser, execute, inside, json_output, prepare
+
+
+def main():
+    parser = common_parser(__doc__)
+    parser.add_argument('cases', help='JSON file inside the task folder containing a list of cases')
+    parser.add_argument('--max-cases', type=int, default=12, help='candidate cap, 1-32; default 12')
+    parser.add_argument('--reuse-instance', action='store_true', help='explicitly test a sequence on one Solution instance')
+    args = parser.parse_args()
+    if not 1 <= args.max_cases <= 32:
+        parser.error('--max-cases must be 1-32')
+    try:
+        root, source, method = prepare(args)
+        path = inside(root, args.cases)
+        if path.stat().st_size > 100000:
+            raise ValueError('candidate file must not exceed 100 KB')
+        cases = json.loads(path.read_text(), parse_constant=lambda text: (_ for _ in ()).throw(ValueError(f'nonfinite JSON number: {text}')))
+        json.dumps(cases, allow_nan=False)
+        if not isinstance(cases, list) or not 1 <= len(cases) <= args.max_cases:
+            raise ValueError('provide 1 through --max-cases candidate objects')
+        for case in cases:
+            if not isinstance(case, dict) or set(case) - {'label', 'args', 'kwargs', 'expected'}:
+                raise ValueError('case keys must be label, args, kwargs, expected')
+            if not isinstance(case.get('args', []), list) or not isinstance(case.get('kwargs', {}), dict):
+                raise ValueError('args must be a list and kwargs an object')
+            if 'label' in case and not isinstance(case['label'], str):
+                raise ValueError('case labels must be strings')
+        report = execute(root, source, method, timeout=args.timeout, mode='cases', cases=cases,
+                         reuse_instance=args.reuse_instance)
+        report['tool'] = 'case_probe'
+        if args.json:
+            json_output(report)
+        else:
+            print(f"Candidate execution: {report['status']}; target=Solution.{method}")
+            for case in report.get('cases', []):
+                result = case.get('raised', case.get('returned'))
+                print(f"{case['label'][:120]}: result={json.dumps(result)[:800]}; input_changed={case['input_changed']}; new_execution_arcs={case['new_arcs_vs_earlier_candidates']}")
+                if 'expected_matches' in case:
+                    print(f"  expected_matches={case['expected_matches']}")
+            if 'detail' in report:
+                print(report['detail'])
+            print('Arcs compare earlier candidates, not baseline tests. Equal coverage can still hide distinct faults.')
+            print('No tests rewritten; observations are not proof of input validity or correct assertions.')
+        return 0 if report['status'] == 'completed' and not any('raised' in c or c.get('expected_matches') is False for c in report.get('cases', [])) else 1
+    except (ValueError, OSError, SyntaxError) as error:
+        parser.exit(2, f'Cannot probe cases: {error}\n')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

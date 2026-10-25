@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Suggest behavioral fault targets from source; no execution or input solving.
+Usage: fault_targets [source.py] [--method NAME] [--line N] [--limit 10] [--json]
+Covers arithmetic, updates, initialization, indexing, ordering, ties, loops and modulo.
+Suggestions are heuristics; use only SPEC-valid, observably distinguishing cases.
+"""
+import argparse
+import ast
+import json
+import sys
+from pathlib import Path
+
+from _runtime import method_name, read_source
+
+
+def identify(node):
+    if isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Mod):
+            return ('modulo', 0, 'Use valid totals below/at/above the modulus; check whether SPEC requires reduction or an exact value.')
+        if isinstance(node.op, (ast.LShift, ast.RShift, ast.BitAnd, ast.BitOr, ast.BitXor)):
+            return ('bit-arithmetic', 1, 'Use valid values around powers of two, long bit runs, and a nearby value with a different bit pattern.')
+        if isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow)):
+            return ('arithmetic', 1, 'Choose unequal/nonneutral operands so a wrong operator changes the result; include valid zero/sign and large-result cases.')
+    if isinstance(node, ast.AugAssign):
+        return ('state-update', 0, 'Use multiple unequal updates; make replacement, resetting, and accumulation produce different final answers.')
+    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+        value = node.value
+        destinations = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(t, ast.Subscript) for t in destinations):
+            return ('indexed-update', 0, 'Use several dependent states/iterations; distinguish previous-state reads from already-updated values and keep inputs asymmetric.')
+        if isinstance(value, (ast.Constant, ast.List, ast.Dict, ast.Set)) or isinstance(value, ast.UnaryOp) and isinstance(value.operand, ast.Constant):
+            return ('initialization', 2, 'Use valid zero/all-negative/all-positive data, empty/singleton cases when allowed, and answers different from the initial sentinel.')
+    if isinstance(node, ast.Call):
+        name = ast.unparse(node.func).split('.')[-1]
+        if name in {'sort', 'sorted', 'min', 'max'}:
+            return ('ordering-and-ties', 0, 'Use an early optimum followed by worse candidates; equal optima at distinguishable positions; nested/unsorted values and numeric indices above one digit if valid.')
+        if name in {'set', 'Counter', 'dict'}:
+            return ('duplicates-and-order', 2, 'Use repeated values and distinguishable positions; verify SPEC-defined multiplicity and output order.')
+        if name in {'comb', 'prod', 'sum'}:
+            return ('aggregate-arithmetic', 0, 'Use multiple unequal contributions and a valid large total; check exact-versus-modulo semantics and neutral-element shortcuts.')
+    if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+        return ('indexing', 2, 'Make the first/last position determine the answer; include minimum valid sizes and internal positions when useful.')
+    if isinstance(node, (ast.For, ast.While)):
+        return ('loop-state', 1, 'Use zero/one/multiple iterations where valid, late improvements, full traversal, and early-exit alternatives; trace intermediate state.')
+    if isinstance(node, (ast.Break, ast.Continue)):
+        return ('early-exit', 0, 'Place a useful candidate after the exit/skip point; distinguish skipping one iteration from abandoning the traversal.')
+    if isinstance(node, ast.Return):
+        return ('result-selection', 2, 'Place the best result away from the final position and check exact value, tie-breaking, ordering, and multiplicity.')
+    return None
+
+
+def collect(source, method=None, line=None):
+    records = []
+
+    class Visitor(ast.NodeVisitor):
+        scope = ()
+
+        def visit_ClassDef(self, node):
+            previous = self.scope
+            self.scope += (node.name,)
+            self.generic_visit(node)
+            self.scope = previous
+
+        def visit_FunctionDef(self, node):
+            previous = self.scope
+            self.scope += (node.name,)
+            self.generic_visit(node)
+            self.scope = previous
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def generic_visit(self, node):
+            found = identify(node) if hasattr(node, 'lineno') else None
+            if found and (method is None or ('Solution', method) == self.scope[:2]) and (line is None or node.lineno == line):
+                kind, priority, suggestion = found
+                records.append({'target': f"{'.'.join(self.scope) or '<module>'}@{node.lineno}:{node.col_offset}",
+                                'line': node.lineno, 'column': node.col_offset, 'kind': kind,
+                                'expression': ast.unparse(node)[:240], 'suggestion': suggestion, 'priority': priority})
+            super().generic_visit(node)
+
+    Visitor().visit(ast.parse(source))
+    # Interleave fault families rather than letting the first loop dominate a report.
+    ordered = sorted(records, key=lambda r: (r['priority'], r['line'], r['column']))
+    first, remainder, kinds = [], [], set()
+    for record in ordered:
+        if record['kind'] not in kinds:
+            first.append(record)
+            kinds.add(record['kind'])
+        else:
+            remainder.append(record)
+    return first + remainder
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('source', nargs='?', default='solution.py')
+    parser.add_argument('--method', help='only this declared Solution method, including its nested functions')
+    parser.add_argument('--line', type=int, help='only this exact source line')
+    parser.add_argument('--limit', type=int, default=10, help='max reported targets, 1-40; default 10')
+    parser.add_argument('--json', action='store_true')
+    args = parser.parse_args()
+    if not 1 <= args.limit <= 40 or args.line is not None and args.line < 1:
+        parser.error('--limit must be 1-40 and --line must be positive')
+    try:
+        root = Path.cwd().resolve()
+        _, source = read_source(root, args.source)
+        method = method_name(root, source, args.method) if args.method else None
+        records = collect(source, method, args.line)
+        report = {'tool': 'fault_targets', 'targets': records[:args.limit], 'omitted': max(0, len(records) - args.limit),
+                  'note': 'Heuristic fault hypotheses, not feasible inputs, measured coverage, or confirmed faults. Check SPEC and propagation to output.'}
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            for item in report['targets']:
+                print(f"{item['target']} [{item['kind']}]: {item['expression']}\n  {item['suggestion']}")
+            print(f"{report['omitted']} additional targets; focus with --method/--line/--limit.")
+            print(report['note'])
+        return 0
+    except (ValueError, OSError, SyntaxError, RecursionError) as error:
+        parser.exit(2, f'Cannot suggest fault targets: {error}\n')
+
+
+if __name__ == '__main__':
+    sys.exit(main())
