@@ -253,3 +253,27 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3690` | 142 | 10 | 5/8 | 21/24 | 50 | 100.0% |
 
 ---
+
+### Experiment: `exp8-post-fixes` (whitebox)
+- **Timestamp:** 2026-10-25 19:03:41
+- **Notes / Hypothesis:** Post-eafbcde fixes: oracle ordering, nested loop exits, seed tolerance
+- **Cost / Tokens:** $0.0534 | 521,317 tokens
+- **Total Function Calls Used:** 149
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **78.6% (22/28)** | Primary Goal |
+| **Hard-Mutant Score** | **84.1% (17/24)** | High-Yield Mutants |
+| **Path Coverage** | 96.0% | Branch/Path Exhaustion |
+| **Branch Coverage** | 97.5% | Structural Coverage |
+| **Oracle Precision** | 89.7% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3594` | 47 | 10 | 6/6 | 3/3 | 50 | 90.0% |
+| `lcb-3610` | 26 | 1 | 5/7 | 1/1 | 27 | 100.0% |
+| `lcb-3612` | 30 | 5 | 3/7 | 9/9 | 35 | 100.0% |
+| `lcb-3686` | 37 | 0 | 8/8 | 4/11 | 37 | 100.0% |
+
+---

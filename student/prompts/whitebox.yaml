@@ -17,6 +17,10 @@ instance_template: |
   - Import with: `from solution import Solution` and invoke `Solution().{{func_name}}(...)`.
   - Do not read or modify files outside this folder.
   - Do not import os, inspect, pathlib or similar modules in tests, and do not open files.
+  - CRITICAL: When adding tests across phases, always APPEND (`cat >> {{test_file}}`) or preserve existing tests.
+    NEVER overwrite `{{test_file}}` with `cat >` after Phase 1 — doing so deletes your prior coverage.
+  - Tool discipline: ONLY use the provided tools (`coverage_report`, `bva_report`, `mcdc_report`, `fix_oracles`, `check_tests`, `run_tests`).
+    Do NOT run raw pytest commands, do not navigate directories (`cd`), and do not run python one-liners.
   - CRITICAL: NEVER include the string "solution.py" anywhere in tests, docstrings, or comments.
     Any test file containing "solution.py" is rejected by the evaluator with 0 score.
   - NEVER write constant assertions like `assert True`.
@@ -35,10 +39,10 @@ instance_template: |
   5. Run `bva_report`.
   6. Act on every section in `bva_report` output. Write the EXACT-TIE test first for
      every MUTANT SITE — it is the only input that kills the operator mutation.
-     Add all tests near the TOP of `{{test_file}}`.
+     Append these tests to `{{test_file}}`.
   7. Run `mcdc_report`.
   8. For each MC/DC scenario listed, write one test. Use dummy or approximate assertions —
-     DO NOT try to compute exact expected values by hand.
+     DO NOT try to compute exact expected values by hand. Append these tests with `cat >> {{test_file}}`.
 
   ### Phase 3: Automated Oracle Alignment & Verification
   9. Run `fix_oracles` IMMEDIATELY. Never debug or calculate assert values by hand —
@@ -49,8 +53,9 @@ instance_template: |
   11. Run `check_tests`.
      - If any errors or budget warnings appear, fix them.
      - If calls exceed {{max_calls}}, prune redundant tests from the bottom of `{{test_file}}`.
-  12. When `check_tests` reports OK, complete the task by running:
+  12. The moment `check_tests` reports OK, your VERY NEXT command must be:
       `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+      Do NOT run `cat`, `pytest`, or any file inspection commands — submit immediately.
 
   ## Tools Available
   {{tools}}
