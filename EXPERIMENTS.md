@@ -320,3 +320,49 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3566` | 12 | 20 | 5/5 | 0/0 | 32 | 100.0% |
 
 ---
+
+### Experiment: `exp-bb-baseline` (blackbox)
+- **Timestamp:** 2026-10-25 22:17:36
+- **Notes / Hypothesis:** Pre-improvement baseline blackbox seeds
+- **Cost / Tokens:** $0.0000 | 0 tokens
+- **Total Function Calls Used:** 50
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **23.8% (5/19)** | Primary Goal |
+| **Hard-Mutant Score** | **38.9% (7/10)** | High-Yield Mutants |
+| **Path Coverage** | 64.6% | Branch/Path Exhaustion |
+| **Branch Coverage** | 66.7% | Structural Coverage |
+| **Oracle Precision** | 48.0% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3566` | 0 | 20 | 0/5 | 0/0 | 20 | 0.0% |
+| `lcb-3610` | 12 | 1 | 2/7 | 0/1 | 13 | 100.0% |
+| `lcb-3612` | 12 | 5 | 3/7 | 7/9 | 17 | 100.0% |
+
+---
+
+### Experiment: `exp-bb-test` (blackbox)
+- **Timestamp:** 2026-10-25 22:54:35
+- **Notes / Hypothesis:** Blackbox minimal oracle test (recovered & evaluated on lcb-3610 and lcb-3612)
+- **Cost / Tokens:** $0.0080 | 75,080 tokens
+- **Total Function Calls Used:** 26
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **64.3% (9/14)** | Primary Goal (Baseline: 35.7% (5/14)) |
+| **Hard-Mutant Score** | **80.0% (8/10)** | High-Yield Mutants (Baseline: 70.0% (7/10)) |
+| **Path Coverage** | 100.0% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 88.5% (23/26) | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3610` | 12 | 2 | 4/7 | 0/1 | 14 | 100.0% |
+| `lcb-3612` | 11 | 1 | 5/7 | 8/9 | 12 | 100.0% |
+
+---
+

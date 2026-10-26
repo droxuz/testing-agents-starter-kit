@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """check_tests: validate test files in tests/ before submission.
 Usage: check_tests
-Checks syntax, assertions, smells, and 50-call budget.
+Checks syntax, assertions, smells, and call budget.
 Exit code 0 means tests are ready.
 """
 
@@ -190,14 +190,24 @@ def main() -> int:
         if smell_counts.get("constant_assertion", 0) > 0 or smell_counts.get("duplicate_test", 0) > 0:
             print(f"Smell summary: {smell_counts['constant_assertion']} constant assertion(s), {smell_counts['duplicate_test']} duplicate test(s).")
 
-    # 2. Call budget estimate (50 calls total across all test files)
+    # 2. Call budget estimate
     call_counts = {p: count_solution_calls(p) for p in files}
     total_calls = sum(call_counts.values())
     breakdown = ", ".join(f"{p.name} ~{cnt} calls" for p, cnt in call_counts.items())
-    print(f"Budget estimate: {breakdown} (Total: {total_calls}/50).")
-    if total_calls > 50:
-        print(f"WARNING: Exceeding 50-call budget by ~{total_calls - 50} calls! Tests past call 50 are dropped by evaluator.")
-        print("Action: Move your most critical boundary tests to the TOP of your test file and prune redundant tests.")
+    if not is_whitebox:
+        # Black-box mode: target is 12-14 calls, hard cap is 25
+        print(f"Budget estimate: {breakdown} (Total: {total_calls}/14 target, max 25).")
+        if total_calls > 14:
+            print(f"WARNING: {total_calls} calls exceed optimal 12-14 target! Prune tests to reserve calls for white-box.")
+        if total_calls > 25:
+            print(f"ERROR: {total_calls} calls exceed black-box limit of 25! Tests past call 25 are rejected.")
+            problems += 1
+    else:
+        # White-box mode: total 50-call budget
+        print(f"Budget estimate: {breakdown} (Total: {total_calls}/50).")
+        if total_calls > 50:
+            print(f"WARNING: Exceeding 50-call budget by ~{total_calls - 50} calls! Tests past call 50 are dropped by evaluator.")
+            print("Action: Move your most critical boundary tests to the TOP of your test file and prune redundant tests.")
 
     # 3. Pytest collection check
     result = subprocess.run(

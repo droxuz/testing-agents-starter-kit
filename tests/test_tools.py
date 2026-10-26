@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BVA_REPORT = REPO_ROOT / "student" / "tools" / "whitebox" / "bva_report"
 MCDC_REPORT = REPO_ROOT / "student" / "tools" / "whitebox" / "mcdc_report"
 CHECK_TESTS = REPO_ROOT / "student" / "tools" / "shared" / "check_tests"
+LIST_CONSTRAINTS = REPO_ROOT / "student" / "tools" / "blackbox" / "list_constraints"
 
 
 def test_bva_report_help():
@@ -135,3 +136,80 @@ def test_wb():
         assert res.returncode == 0
         assert "WARNING tests/test_blackbox.py" in res.stdout
         assert "OK. All checks passed." in res.stdout
+
+
+def test_list_constraints_help():
+    res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS), "--help"], capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "list_constraints" in res.stdout
+
+
+def test_list_constraints_minimal_bounds():
+    with tempfile.TemporaryDirectory() as td:
+        spec = Path(td) / "SPEC.md"
+        spec.write_text("Constraints:\n1 <= n <= 100\n0 <= nums[i] <= 10^5\n")
+        res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode == 0
+        assert "n: [1, 100]  minimal boundaries: 1, 2 (avoid upper bounds 100 in black-box)" in res.stdout
+        assert "nums[i]: [0, 100000]  minimal boundaries: 0, 1 (avoid upper bounds 100000 in black-box)" in res.stdout
+
+
+def test_check_tests_blackbox_budget_target_and_cap():
+    with tempfile.TemporaryDirectory() as td:
+        tests_dir = Path(td) / "tests"
+        tests_dir.mkdir()
+        (Path(td) / "solution.py").write_text("class Solution:\n    def f(self, x: int) -> int:\n        return x\n")
+
+        # 12 calls (under target 14)
+        tests_code_12 = "from solution import Solution\n" + "\n".join(
+            f"def test_{i}():\n    assert Solution().f({i}) == {i}" for i in range(12)
+        )
+        (tests_dir / "test_blackbox.py").write_text(tests_code_12)
+        res = subprocess.run([sys.executable, str(CHECK_TESTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode == 0
+        assert "Total: 12/14 target, max 25" in res.stdout
+        assert "WARNING" not in res.stdout
+        assert "OK. All checks passed." in res.stdout
+
+        # 15 calls (exceed target 14, under cap 25 -> warning, exit code 0)
+        tests_code_15 = "from solution import Solution\n" + "\n".join(
+            f"def test_{i}():\n    assert Solution().f({i}) == {i}" for i in range(15)
+        )
+        (tests_dir / "test_blackbox.py").write_text(tests_code_15)
+        res = subprocess.run([sys.executable, str(CHECK_TESTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode == 0
+        assert "WARNING: 15 calls exceed optimal 12-14 target!" in res.stdout
+        assert "OK. All checks passed." in res.stdout
+
+        # 26 calls (exceed cap 25 -> error, non-zero exit)
+        tests_code_26 = "from solution import Solution\n" + "\n".join(
+            f"def test_{i}():\n    assert Solution().f({i}) == {i}" for i in range(26)
+        )
+        (tests_dir / "test_blackbox.py").write_text(tests_code_26)
+        res = subprocess.run([sys.executable, str(CHECK_TESTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode != 0
+        assert "ERROR: 26 calls exceed black-box limit of 25!" in res.stdout
+        assert "FAILED: 1 issue(s) must be fixed before submission." in res.stdout
+
+
+def test_submission_main():
+    from testagent.submission import main as sub_main
+    assert sub_main(["student"]) == 0
+
+
+def test_list_constraints_missing_spec():
+    with tempfile.TemporaryDirectory() as td:
+        res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode == 1
+        assert "ERROR: SPEC.md not found." in res.stdout
+
+
+def test_list_constraints_equal_bounds_and_negative():
+    with tempfile.TemporaryDirectory() as td:
+        spec = Path(td) / "SPEC.md"
+        spec.write_text("Constraints:\n1 <= k <= 1\n-10^4 <= val <= -10^4\n")
+        res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS)], cwd=td, capture_output=True, text=True)
+        assert res.returncode == 0
+        assert "k: [1, 1]  minimal boundaries: 1\n" in res.stdout
+        assert "val: [-10000, -10000]  minimal boundaries: -10000\n" in res.stdout
+
