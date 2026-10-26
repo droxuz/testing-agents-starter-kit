@@ -56,27 +56,27 @@ class ConstraintTests(unittest.TestCase):
 class InputTests(unittest.TestCase):
     def test_dependent_bounds(self):
         spec = 'Constraints:\n1 <= x <= k <= nums.length\n## Signature\ndef f(self, nums, k, x):\n'
-        r = run_tool('check_inputs', spec, 'def test_one():\n assert Solution().f([1,2],1,2)==0\n')
+        r = run_tool('_check_inputs', spec, 'def test_one():\n assert Solution().f([1,2],1,2)==0\n')
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn('x <= k violated', r.stdout)
 
     def test_row_fields(self):
         spec = ('Constraints:\nrows[i] = [left, right, weight]\n1 <= left <= right <= 100\n'
                 '1 <= weight <= 100\n## Signature\ndef f(self, rows):\n')
-        r = run_tool('check_inputs', spec, 'def test_one():\n assert Solution().f([[0,2,0]])==0\n')
+        r = run_tool('_check_inputs', spec, 'def test_one():\n assert Solution().f([[0,2,0]])==0\n')
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn('left=0 outside', r.stdout)
         self.assertIn('weight=0 outside', r.stdout)
 
     def test_unknown_mutated_input(self):
         spec = 'Constraints:\n1 <= nums[i] <= 3\n## Signature\ndef f(self, nums):\n'
-        r = run_tool('check_inputs', spec, 'def test_one():\n a=[1]\n a.append(0)\n assert Solution().f(a)==0\n')
+        r = run_tool('_check_inputs', spec, 'def test_one():\n a=[1]\n a.append(0)\n assert Solution().f(a)==0\n')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('unresolved inputs: 1', r.stdout)
 
     def test_misspelled_constraint_unknown(self):
         spec = 'Constraints:\n1 <= itmes.length <= 10\n## Signature\ndef f(self, items):\n'
-        r = run_tool('check_inputs', spec, 'def test_one():\n assert Solution().f([])==0\n')
+        r = run_tool('_check_inputs', spec, 'def test_one():\n assert Solution().f([])==0\n')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('unresolved bound checks: 1', r.stdout)
 

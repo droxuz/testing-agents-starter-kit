@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
-"""check_tests: review assertion style, conflicting literal answers, and budget risk.
+"""check_tests: validate test assertions, consistency, syntax, and budget limits.
 
-Usage: check_tests [--max-calls N]
+Usage: check_tests [--max-calls 25]
 
-Flags self.assert* calls in plain test classes with no matching local method.
-Use `assert actual == expected`, or a proper unittest.TestCase subclass.
-Inherited, decorated, and dynamically supplied assertion methods are not resolved.
-Flags different literal answers for identical literal inputs on fresh Solution
-instances. Stateful/dynamic cases are skipped; it cannot choose the correct answer.
-Warns above N source call sites (default 25), NOT an exact runtime call count.
-Loops, parametrization, helpers and collection can change actual budget usage.
-After this guard passes, runs the existing shared check_tests (syntax, source
-access, assertions and pytest collection). Collection imports test modules but
-never deliberately runs test bodies. Does not verify expected answers or inputs.
+Flags self.assert* in pytest classes (use `assert actual == expected`).
+Flags conflicting expected answers for identical inputs.
+Warns if calls exceed 14; errors if calls exceed 25.
+Verifies forbidden imports, duplicate test bodies, and pytest collection.
 """
 
 import ast
