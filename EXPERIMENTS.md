@@ -366,3 +366,25 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 
 ---
 
+
+### Experiment: `exp-bb-merged` (blackbox)
+- **Timestamp:** 2026-10-25 23:12:44
+- **Notes / Hypothesis:** Post-merge verification benchmark on lcb-3610 and lcb-3612
+- **Cost / Tokens:** $0.0034 | 31,447 tokens
+- **Total Function Calls Used:** 28
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **57.1% (8/14)** | Primary Goal |
+| **Hard-Mutant Score** | **44.5% (8/10)** | High-Yield Mutants |
+| **Path Coverage** | 93.8% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 82.1% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3610` | 11 | 3 | 3/7 | 0/1 | 14 | 100.0% |
+| `lcb-3612` | 12 | 2 | 5/7 | 8/9 | 14 | 100.0% |
+
+---
