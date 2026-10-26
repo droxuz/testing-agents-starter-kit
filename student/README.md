@@ -1,141 +1,122 @@
-# Matthew's separate testing-agent handoff
+# Testing agent configuration
 
-This branch contains the black-box safeguards below and the evaluated **trace-v3
-white-box workflow**. `final.yaml` selects `separate`. The assigned model and
-`settings.yaml` are unchanged. See the repository's `REPORT.md` for the final
-comparison, experiment limitations, and team details.
+Our final configuration uses the **separate** strategy in `final.yaml`: black-box
+first, followed by trace-guided white-box testing. We use the assigned Qwen3.5 9B
+model and unchanged settings. See `REPORT.md` for the complete results,
+experiments, and limitations.
 
-## White-box integration
+## Workflow
 
-Keep these files together:
+1. The black-box agent reads the specification and function signature without
+   seeing the implementation. It chooses input groups and boundaries, calculates
+   expected answers from the requirements, and writes `test_blackbox.py`.
+2. The white-box agent reads the provided correct implementation and existing
+   tests, then suggests additional inputs based on the specification and code.
+3. `select_candidates` checks supported input rules and runs each candidate
+   twice. It prefers new execution edges, different line orders, different
+   execution counts, and different outputs. It also removes duplicate inputs.
+4. The tool selects cases within the remaining call budget and writes
+   `test_whitebox.py` with fixed expected values. The agent checks the file and
+   submits without editing the implementation or black-box tests.
 
-- `prompts/whitebox.yaml`: candidate generation, selection, validation, and submission workflow.
-- `tools/whitebox/select_candidates`: executable command that ranks candidates and exports literal pytest assertions.
-- `tools/whitebox/_trace_worker.py`: bounded worker for tracing and repeated candidate execution.
-- `tools/whitebox/_test_select_candidates.py`: local synthetic regression checks.
-- `tools/blackbox/check_inputs` and `list_constraints`: reused for supported input-constraint checks.
+The black-box budget is 25 calls. The final suite shares a 50-call budget. The
+selector reserves the calls already used by black-box tests, including entries
+into constructors and helpers from outside the implementation. Internal
+recursion does not consume another external entry. If inherited tests exhaust
+the budget, the selector tells the agent to submit without adding tests.
 
-The selector reads only task-local specification, provided implementation, and
-inherited tests. It uses no network or extra model calls. It reserves inherited
-external calls from the shared 50-call budget and explicitly stops when that
-budget is exhausted. Unknown constraints remain unverified. Generated tests
-contain fixed expected values; they do not import the worker or candidate JSON.
-
-The final 61-problem evaluation detected 268/350 bugs versus the starter's
-251/350, with 186/240 versus 185/240 hard mutants and zero over-budget tests.
-One white-box task was interrupted; its black-box tests were evaluated. API
-failures and stochastic generation limit causal and cost claims. These are
-whole-configuration results, not proof of a standalone black-box improvement.
-
-Raw runs, configuration snapshots, and private journals remain ignored under
-`runs/` and are not included in this commit. Ask Matthew for the evaluation
-artifacts when assembling `results/` and the final submission ZIP.
-
-The following sections preserve the black-box experiments and their limitations.
-
-## Included changes
+## Files to keep together
 
 | File | Purpose |
 |---|---|
-| `prompts/blackbox.yaml` | Require constraint extraction and input review; request valid pytest assertion style and static consistency/budget checks. |
-| `tools/blackbox/list_constraints` | Correct strict integer bounds and singleton candidates; propagate necessary bounds through comparison chains; display dependent and unsupported rules. |
-| `tools/blackbox/check_inputs` | Check supported literal inputs against numeric bounds, lengths, parameter relationships, and generic row-field declarations in the specification. |
-| `tools/blackbox/check_tests` | Flag unittest assertions in plain pytest classes, contradictory literal expected answers for matching fresh-instance calls, and possible budget overruns; then delegate to the unchanged shared checker. |
+| `prompts/blackbox.yaml` | Guides specification-based tests, input review, and valid pytest assertions. |
+| `tools/blackbox/list_constraints` | Extracts supported numeric bounds, strict inequalities, and dependent constraints. |
+| `tools/blackbox/check_inputs` | Checks supported literal inputs against specification rules; reuses `list_constraints`. |
+| `tools/blackbox/check_tests` | Checks assertion-method mistakes, conflicting answers for identical inputs, and static budget risks; then calls the shared checker. |
+| `prompts/whitebox.yaml` | Guides candidate generation, selection, validation, and submission. |
+| `tools/whitebox/select_candidates` | Selects inputs and exports ordinary pytest tests with fixed expected values. |
+| `tools/whitebox/_trace_worker.py` | Runs bounded measurements, repeated executions, and input checks for the selector. |
+| `tools/whitebox/_test_select_candidates.py` | Regression checks for selection, counting, export, and budget exhaustion. |
+| `tools/blackbox/_test_tools.py` | Regression checks for the black-box safeguards. |
+| `tools/shared/check_tests` | Existing syntax, source-access, assertion, and collection checks. |
+| `tools/whitebox/run_tests`, `coverage_report` | Existing execution and coverage tools. The prompt validates new tests directly with pytest. |
 
-The archived `review_tests` duplicate checker is **not** part of this candidate.
-The black-box tools are offline. They never read a real implementation or hidden bug data.
-The original shared checker still imports test modules for pytest collection;
-its test-body execution behavior is unchanged.
+All custom tools are offline and make no additional model calls. Black-box
+tools do not inspect the real implementation. White-box tools use only the
+provided implementation, specification, and tests inside the task workspace.
+Generated tests do not import scratch candidate files or the selector worker.
 
-## Limitations and integration
+## Measured results
 
-- UNKNOWN means unsupported, not valid. Symbolic arithmetic, dynamic inputs,
-  helpers, complex control flow, prose requirements, and misspelled specification
-  fields may remain unchecked.
-- Input legality and internal consistency do not prove expected-answer correctness.
-- Budget warnings count source call sites, not actual runtime calls. Loops,
-  parametrization, fixtures, helpers, and collection can change actual usage.
-- Contradiction checking only supports selected literal equality assertions on
-  fresh instances. Stateful calls and dynamic assertions are skipped.
-- The black-box `check_tests` shadows the shared command. It also becomes visible
-  in combined mode under the existing harness discovery rules. White-box command
-  discovery is unchanged. The team should review this when comparing strategies.
-- Keep both `check_inputs` and `list_constraints`: the former reuses the latter's
-  parser. Keep the original `tools/shared/check_tests` for delegation.
-- Checks never automatically repair tests. After changing an input, the agent
-  must re-derive the expected answer.
+The saved starter and final evaluations each cover all 61 development problems,
+without limiting the mutant set. These are the results for this configuration,
+not the alternative configuration tested later on the team's main branch.
 
-## Measured evidence
+| Metric | Starter | Final |
+|---|---:|---:|
+| Bugs detected | 251/350 | 268/350 |
+| Hard mutants detected | 185/240 | 186/240 |
+| Mutation score | 94.29% | 96.62% |
+| Oracle precision | 91.02% | 93.07% |
+| Branch coverage | 99.02% | 99.32% |
+| Path coverage | 98.62% | 99.51% |
+| Wrong-oracle labels | 230 | 189 |
+| Over-budget tests | 316 | 0 |
+| Rejected files | 5 | 0 |
+| Duplicate-test smells | 65 | 17 |
 
-All counts below come from actual saved evaluator output. Run names identify
-artifacts retained locally; **raw runs and private journal are not committed**.
-Ask Matthew for the evaluation JSON/trajectories if needed for the team report.
+One white-box task, `lcb-3654`, was interrupted; its black-box tests were still
+evaluated. Eight black-box tasks produced no file, but white-box generated tests
+for them. Every final problem had valid tests. API failures and the interruption
+mean recorded costs may be incomplete. Results vary between model runs, and the
+full-run difference cannot be attributed to the selector alone.
 
-Earlier three-problem experiments use `lcb-3502`, `lcb-3562`, `lcb-3610`.
-The first three rows below are restricted to those IDs, even when the original
-run included additional problems.
+Earlier black-box experiments did not establish a reliable standalone detection
+gain. We retained checks for demonstrated input and assertion mistakes, rather
+than claiming that those checks prove better test selection. Unsuccessful
+experiments are included in `REPORT.md`.
 
-| Configuration / local run | Bugs caught | Wrong-oracle labels | Over-budget tests | Tokens |
-|---|---:|---:|---:|---:|
-| Starter: `bb-starter-subset-r1` (three IDs) | 10/19 | 3 | 9 | 237,983 |
-| Starter: `bb-starter-subset-r2` (three IDs) | 11/19 | 1 | 0 | 104,114 |
-| Repaired constraints + invocation: `bb-constraints-v2-pilot-r1` | 12/19 | 3 | 0 | 268,081 |
-| Input checker v1: `bb-input-check-v1-pilot-r1` | 10/19 | 2 | 0 | 201,468 |
-| Input checker v1 repeat: `bb-input-check-v1-pilot-r2` | 3/19 | 29 | 0 | 241,971 |
-| Assertion-style guard: `bb-input-check-v2-pilot-r1` | 7/19 | 13 | 11 | 202,345 |
-| Current candidate: `bb-input-check-v3-smoke-r1` + `bb-input-check-v3-rest2-r1` | 9/19 | 2 | 0 | 245,497 |
+## Limits
 
-The 12/19 constraint-only pilot used 23 illegal interval inputs. It must not be
-presented as a specification-compliant improvement. The v1 repeat's 25 failures
-on `lcb-3502` were missing `self.assertEqual` methods, not 25 proven arithmetic
-mistakes. The evaluator labels runtime failures as wrong oracles too.
+- UNKNOWN means unverified. Unsupported prose rules, symbolic expressions,
+  dynamic inputs, and some field relationships require manual review.
+- Valid inputs and consistent assertions do not prove expected answers correct.
+  Black-box answers must be recalculated whenever an input changes.
+- Black-box source-call counts are estimates. Loops, fixtures, parametrization,
+  and helpers can change the number of calls made during execution.
+- Repeated execution catches some changing results, but does not prove that a
+  test will always be stable. Fresh instances do not reset every possible state.
+- Different traces and full coverage do not guarantee bug detection. Expensive
+  candidates can exceed tool time or trace limits.
+- The black-box `check_tests` command takes priority over the shared command in
+  black-box and combined modes. Our selected strategy is separate.
 
-Additional five IDs: `lcb-3566`, `lcb-3604`, `lcb-3625`, `lcb-3675`, `lcb-3685`.
+## Validate and run
 
-| Run | Bugs caught | Hard mutants | Wrong-oracle labels | Over-budget tests | Tokens |
-|---|---:|---:|---:|---:|---:|
-| Starter: `bb-starter-new5-r1` | 10/24 | 2/5 | 17 | 0 | 239,949 |
-| Current candidate: `bb-input-check-v3-new5-r1` | 14/24 | 5/5 | 19 | 1 | 414,192 |
-
-Across eight problems, current candidate totals 23/43 bugs versus composite
-starter's 21/43 (starter original-three r2 plus new-five r1). This is confounded:
-starter produced no tests on `lcb-3625` after an API accounting error, while the
-candidate produced no tests on `lcb-3675` after an API error. Candidate `lcb-3685`
-retained usable tests despite an API error later in generation.
-
-On the five problems with valid tests in both configurations, starter catches
-18/27 bugs versus candidate's 17/27. This completion-selected comparison is
-also descriptive, not an unbiased validation estimate. We have not established
-consistent bug-detection gains. These were preliminary black-box experiments; the later full separate run is documented in `REPORT.md`.
-
-### Demonstrated local safeguards
-
-- Constraint extraction previously suggested forbidden endpoints for strict
-  inequalities and out-of-range candidates for singleton intervals; these are fixed.
-- Input checker feedback caused specific illegal `k > len(s)` and `x > k` cases
-  to be corrected in saved agent trajectories.
-- Local checks detect all 25 invalid assertion-method calls in the saved plain
-  pytest class, and the saved suite with 41 source calls plus conflicting answers.
-- Semantic misunderstandings remain the main unresolved limitation. Full coverage
-  and successful static review are not sufficient evidence of strong tests.
-
-## Validation and next steps
-
-From the repository root:
+From the repository root, these commands perform local checks without model calls:
 
 ```bash
 .venv/bin/python -m testagent.submission student
 .venv/bin/python student/tools/blackbox/_test_tools.py
+.venv/bin/python -m unittest discover -s student/tools/whitebox -p '_test_*.py'
 .venv/bin/python -m pytest -q
 ```
 
-For an agent experiment, choose a fresh run name and run `testagent.run` in
-black-box mode, followed by `testagent.evaluate` with the same IDs. Do not cap
-mutants for report comparisons. Generation uses paid model calls; local tool
-checks and evaluation do not. Preserve outputs and configuration for each run.
-Recurring API accounting failures need course-approved handling; no model or
-settings changes were made to bypass them.
+To generate and evaluate a new full run, choose an unused run name:
 
-Recommended team decision: compare this candidate with the starter black-box
-component in the team's final workflow. Keep negative experiments in the report;
-do not claim tool correctness alone improved the main evaluation metrics.
+```bash
+.venv/bin/python -m testagent.final --run team-final --workers 8
+.venv/bin/python -m testagent.evaluate --run team-final --mode final --workers 8
+```
+
+Generation uses paid model calls; evaluation is local. Keep the configuration,
+report, and results matched. Preserve failed runs and record retries rather than
+selecting whichever attempt has the highest score. Do not change the assigned
+model or settings to bypass API accounting failures.
+
+Raw runs, private journals, and submission ZIPs are ignored under `runs/` or by
+the ZIP ignore rule. They are not included in Git commits. The official packaging
+command copies available evaluation and usage JSON into `results/` inside the
+submission ZIP and generated tests into `final_tests/`. The evaluated backup and
+its packaging script remain available locally; rebuild the ZIP after changing
+the report or documentation intended for that package.
