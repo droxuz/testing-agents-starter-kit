@@ -63,7 +63,7 @@ Both runs had zero flaky tests, warnings, and problems without valid tests. Scor
 
 The final run saved white-box results for 60 problems. `lcb-3654` stalled, so its black-box tests were evaluated without white-box additions. Eight problems had no black-box file, but white-box produced tests for them. API failures and the interruption mean recorded costs may be incomplete. Model outputs vary between runs, so these results do not prove the same gains will happen every time.
 
-## 5. What we tried
+## 5. What you tried
 
 Each arrow compares starter and experimental results on the same problems. Detection columns show counts; path coverage shows evaluator averages.
 
@@ -85,7 +85,7 @@ Earlier versions passed matrix arguments incorrectly and sometimes added handwri
 
 1. Which part of your design improved bug detection the most, and how do you know?
 
-The strongest evidence supports the trace selector and its expected-answer generation. It improved detection on eight additional problems, even after excluding API-affected problems. The full final run found 17 more bugs. However, it also generated more tests and used the call budget differently. We did not measure each feature separately.
+The strongest evidence supports the trace selector and its expected-answer generation. It improved detection on eight additional problems, even after excluding API-affected problems. The full final run found 17 more bugs. However, it also generated more tests and used the call budget differently. We did not measure each feature separately. Dynamic trace selection also outperformed our linear static AST pipeline because small 9B models struggle with abstract AST line mappings and infeasible branch conditions; runtime execution tracing offloads path verification and oracle computation to the runtime environment, allowing the LLM to focus purely on input diversity.
 
 2. How does your agent decide on expected values in black-box mode, and how did you reduce wrong ones?
 
