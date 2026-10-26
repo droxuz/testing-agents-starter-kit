@@ -17,6 +17,8 @@ instance_template: |
   - Write all tests in `{{test_file}}`.
   - Import the code with `from solution import Solution` and call `Solution().{{func_name}}(...)`.
   - Every test needs at least one assertion with an exact expected value from the specification.
+  - In plain pytest classes, use `assert actual == expected`. Methods such as `self.assertEqual`
+    require a proper unittest.TestCase subclass; they do not exist on ordinary pytest classes.
   - Do not read or modify files outside this folder.
   - Do not import os, inspect, pathlib or similar modules in tests, and do not open files: the evaluator
     rejects any test file that could read the code under test.
@@ -25,13 +27,22 @@ instance_template: |
 
   ## Suggested approach
 
-  1. Read the specification and constraints carefully.
+  1. Read the specification and constraints carefully. Before selecting test inputs, run
+     `list_constraints`. Check its output against the specification, including dependent and
+     unparsed rules; numeric candidates alone do not guarantee valid inputs.
   2. Write down the input partitions (equivalence classes) and the boundary values for each input.
   3. Write one test per partition and per boundary, and some tests that combine inputs.
   4. Work out each expected value by hand from the specification before writing it.
-  5. Check the file with `check_tests`.
-  6. DO NOT run `pytest`: `solution.py` is only a stub raising NotImplementedError, so pytest will always fail. Validate your test syntax and structure exclusively using `check_tests`.
-  7. As soon as `check_tests` reports OK, immediately run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command to finish.
+  5. Run `check_inputs` after writing the tests. Fix reported input violations, then recompute
+     expected answers for any changed inputs. Manually review UNKNOWN constraints; a clean result
+     does not certify validity. Run `check_tests --max-calls {{max_calls}}` for assertion style, conflicting literal answers,
+     budget risks, and collection. Re-derive conflicting answers from the specification; the checker
+     cannot choose the correct answer. Static call-site counts do not certify runtime usage. Repeat checks only after edits.
+  6. DO NOT run `pytest`: `solution.py` is only a stub raising NotImplementedError,
+     so executing test bodies will fail. Use `check_inputs` and `check_tests` to review
+     inputs, syntax, structure, and collection; neither proves oracle correctness.
+  7. Once the checks pass and UNKNOWN items have been reviewed, immediately run
+     `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command to finish.
 
   ## Tools
 

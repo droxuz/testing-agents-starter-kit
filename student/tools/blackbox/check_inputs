@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""check_inputs: statically check literal test inputs against supported SPEC.md bounds.
+
+Usage: check_inputs [--max-messages N]
+
+Supports integer bounds, parameter.length, parameter[i], parameter[i].length,
+row-field declarations such as rows[i] = [left, right, weight], and resolved
+comparison chains. Simple local literal assignments are supported. Does not
+execute tests, read solution.py, edit files, or check expected answers.
+Dynamic inputs, other constraints, helpers, and complex control flow are UNKNOWN.
+Exit 1 means violations/errors found. Exit 0 does NOT certify full validity.
+"""
+
+import argparse
+import ast
+import re
+import runpy
+from pathlib import Path
+
+# Reuse only our submitted parser, never import tests or implementation code.
+PARSER = runpy.run_path(str(Path(__file__).with_name('list_constraints')))
+
+
+class Unknown(Exception):
+    pass
+
+
+def lookup(expression, context):
+    expression = expression.strip()
+    number = PARSER['to_int'](expression)
+    if number is not None:
+        return number
+    if expression in context:
+        return context[expression]
+    if expression.endswith('.length'):
+        value = lookup(expression[:-7], context)
+        if isinstance(value, (list, tuple, str)):
+            return len(value)
+    raise Unknown(expression)
+
+
+def prepare(spec):
+    signatures = re.findall(r'^\s*(def\s+\w+\s*\(.*\).*:)\s*$', spec, re.MULTILINE)
+    if len(signatures) != 1:
+        raise ValueError('expected one method signature in SPEC.md')
+    func = ast.parse(signatures[0] + '\n    pass\n').body[0]
+    params = [a.arg for a in func.args.args if a.arg != 'self']
+    bounds, symbols, dependent, unparsed, conflict = PARSER['analyze'](spec)
+    if conflict:
+        raise ValueError('conflicting extracted constraints')
+    mappings = []
+    for root, index, fields in re.findall(r'(?m)^\s*(\w+)\[(\w+)\]\s*=\s*\[([^\]\n]+)\]\s*$', spec):
+        fields = [f.strip() for f in fields.split(',')]
+        if all(re.fullmatch(r'[A-Za-z_]\w*', f) for f in fields):
+            mappings.append((root, index, fields))
+    return func.name, params, bounds, symbols, dependent, unparsed, mappings
+
+
+def contexts(args, mappings):
+    yield args
+    for root, value in args.items():
+        if not isinstance(value, (list, tuple)):
+            continue
+        indices = {'i'} | {index for name, index, _ in mappings if name == root}
+        for row in value:
+            for index in indices:
+                context = dict(args)
+                context[f'{root}[{index}]'] = row
+                for name, idx, fields in mappings:
+                    if name == root and idx == index and isinstance(row, (list, tuple)) and len(fields) == len(row):
+                        context.update(zip(fields, row))
+                yield context
+
+
+def validate(arguments, bounds, symbols, dependent, mappings):
+    failures, checked = set(), set()
+    for context in contexts(arguments, mappings):
+        # Recover aliases explicitly equated to a known expression, e.g. n == nums.length.
+        for _ in range(len(symbols) + 1):
+            changed = False
+            for line in dependent:
+                parts = PARSER['OP'].split(line)
+                for left, op, right in zip(parts[::2], parts[1::2], parts[2::2]):
+                    if op != '==':
+                        continue
+                    for a, b in ((left.strip(), right.strip()), (right.strip(), left.strip())):
+                        if re.fullmatch(r'[A-Za-z_]\w*', a) and a not in context:
+                            try:
+                                context[a] = lookup(b, context)
+                                changed = True
+                            except Unknown:
+                                pass
+            if not changed:
+                break
+        for name in symbols:
+            try:
+                value = lookup(name, context)
+            except Unknown:
+                continue
+            low, high = bounds[name]
+            if low is None and high is None:
+                continue
+            checked.add(name)
+            if type(value) is not int:
+                failures.add(f'{name}: expected an integer for extracted bounds')
+            elif (low is not None and value < low) or (high is not None and value > high):
+                failures.add(f'{name}={value} outside [{low if low is not None else "unknown"}, '
+                             f'{high if high is not None else "unknown"}]')
+        for line in dependent:
+            parts = PARSER['OP'].split(line)
+            for left, op, right in zip(parts[::2], parts[1::2], parts[2::2]):
+                label = left.strip() + ' ' + op + ' ' + right.strip()
+                try:
+                    a, b = lookup(left, context), lookup(right, context)
+                except Unknown:
+                    continue
+                if type(a) is not int or type(b) is not int:
+                    continue
+                checked.add(label)
+                ok = {'<': a < b, '<=': a <= b, '>': a > b, '>=': a >= b, '==': a == b}[op]
+                if not ok:
+                    failures.add(f'{label} violated ({a} versus {b})')
+    unknown = sum(name not in checked for name in symbols)
+    return sorted(failures), unknown
+
+
+def calls(tree, method, params):
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)) or not func.name.startswith('test'):
+            continue
+        values = {}
+        for stmt in func.body:
+            simple = isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Expr, ast.Assert))
+            all_calls = [n for n in ast.walk(stmt) if isinstance(n, ast.Call)]
+            for call in all_calls:
+                if not isinstance(call.func, ast.Attribute) or call.func.attr != method:
+                    continue
+                arguments = None
+                try:
+                    if not simple or len(call.args) > len(params) or any(k.arg is None for k in call.keywords):
+                        raise Unknown()
+                    def resolve(node):
+                        if isinstance(node, ast.Name) and node.id in values:
+                            return values[node.id]
+                        return ast.literal_eval(node)
+                    arguments = dict(zip(params, (resolve(n) for n in call.args)))
+                    for kw in call.keywords:
+                        if kw.arg not in params or kw.arg in arguments:
+                            raise Unknown()
+                        arguments[kw.arg] = resolve(kw.value)
+                    if set(arguments) != set(params):
+                        raise Unknown()
+                except (Unknown, ValueError, TypeError, RecursionError):
+                    arguments = None
+                yield call.lineno, func.name, arguments
+            if not simple or all_calls:
+                values.clear()
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        values.pop(target.id, None)
+                        try:
+                            values[target.id] = ast.literal_eval(stmt.value)
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        values.clear()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--max-messages', type=int, default=12)
+    options = parser.parse_args()
+    if options.max_messages < 1:
+        parser.error('--max-messages must be positive')
+    try:
+        if Path('SPEC.md').is_symlink() or Path('tests').is_symlink():
+            raise ValueError('symlinked task inputs are unsupported')
+        method, params, bounds, symbols, dependent, unparsed, mappings = prepare(Path('SPEC.md').read_text())
+        files = sorted(Path('tests').glob('test_*.py'))
+        if not files:
+            raise ValueError('no tests/test_*.py files')
+        messages, total, invalid, unknown_calls, unknown_rules = [], 0, 0, 0, 0
+        for path in files:
+            if path.is_symlink():
+                raise ValueError('symlinked test file is unsupported')
+            for line, name, arguments in calls(ast.parse(path.read_text()), method, params):
+                total += 1
+                if arguments is None:
+                    unknown_calls += 1
+                    continue
+                failures, unknown = validate(arguments, bounds, symbols, dependent, mappings)
+                unknown_rules += unknown
+                if failures:
+                    invalid += 1
+                    messages.append(f'{path}:{line} ({name}): ' + '; '.join(failures[:3]))
+        print('\n'.join(messages[:options.max_messages])) if messages else None
+        if len(messages) > options.max_messages:
+            print(f'{len(messages) - options.max_messages} further invalid-input findings omitted.')
+        print(f'Call sites: {total}; violations: {invalid}; unresolved inputs: {unknown_calls}; '
+              f'unresolved bound checks: {unknown_rules}; unparsed rules: {len(unparsed)}.')
+        print('UNKNOWN: dynamic execution and unsupported rules are not validated. Expected answers unchecked.')
+        return int(invalid > 0)
+    except (OSError, ValueError, SyntaxError, RecursionError) as error:
+        print(f'Input check unavailable: {error}')
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
