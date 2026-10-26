@@ -150,8 +150,8 @@ def test_list_constraints_minimal_bounds():
         spec.write_text("Constraints:\n1 <= n <= 100\n0 <= nums[i] <= 10^5\n")
         res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS)], cwd=td, capture_output=True, text=True)
         assert res.returncode == 0
-        assert "n: [1, 100]  minimal boundaries: 1, 2 (avoid upper bounds 100 in black-box)" in res.stdout
-        assert "nums[i]: [0, 100000]  minimal boundaries: 0, 1 (avoid upper bounds 100000 in black-box)" in res.stdout
+        assert "n: [1, 100] minimal candidates: 1, 2" in res.stdout
+        assert "nums[i]: [0, 100000] minimal candidates: 0, 1" in res.stdout
 
 
 def test_check_tests_blackbox_budget_target_and_cap():
@@ -210,6 +210,6 @@ def test_list_constraints_equal_bounds_and_negative():
         spec.write_text("Constraints:\n1 <= k <= 1\n-10^4 <= val <= -10^4\n")
         res = subprocess.run([sys.executable, str(LIST_CONSTRAINTS)], cwd=td, capture_output=True, text=True)
         assert res.returncode == 0
-        assert "k: [1, 1]  minimal boundaries: 1\n" in res.stdout
-        assert "val: [-10000, -10000]  minimal boundaries: -10000\n" in res.stdout
+        assert "k: [1, 1] minimal candidates: 1\n" in res.stdout
+        assert "val: [-10000, -10000] minimal candidates: -10000\n" in res.stdout
 

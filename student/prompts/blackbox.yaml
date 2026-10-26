@@ -16,7 +16,7 @@ instance_template: |
   - Write all tests in `{{test_file}}`.
   - Import with `from solution import Solution` and invoke `Solution().{{func_name}}(...)`.
   - Every test must use exact equality assertions: `assert Solution().{{func_name}}(...) == <expected_literal>`.
-  - In plain pytest classes, use `assert actual == expected`. Never use `self.assertEqual`.
+  - In plain pytest classes, use assert actual == expected. Never use self.assertEqual.
   - Do not read or modify files outside this folder.
   - Do not import os, inspect, pathlib, or open files.
   - CRITICAL: NEVER include the string "solution.py" anywhere inside test strings, docstrings, or comments.

@@ -1,63 +1,149 @@
 #!/usr/bin/env python3
-"""list_constraints: list the numeric constraints in SPEC.md and minimal boundary values.
+"""list_constraints: show integer bounds and dependent constraints from SPEC.md.
 
 Usage: list_constraints
 
-For each line like `1 <= n <= 100` it prints the minimal values at and next to the lower bound.
-Upper bounds are avoided to keep mental math simple and exact.
+Supports integer comparison chains (<, <=, >, >=, ==), including powers such
+as 10^9 and 5 * 10^4. Strict bounds are adjusted for integers. Candidate values
+satisfy extracted numeric bounds ONLY; check dependent and prose rules yourself.
+Unsupported constraints are shown as unparsed, never silently treated as valid.
+Does not inspect implementations, execute tests, or verify generated inputs.
 """
 
 import re
 import sys
 from pathlib import Path
 
-NUMBER = r"-?\d+(?:\s*\*\s*10\^\d+|\^\d+)?"
-PATTERN = re.compile(rf"({NUMBER})\s*<=?\s*(.+?)\s*<=?\s*({NUMBER})")
+NUMBER = re.compile(r"(-?\d+)(?:\s*(?:\^|\*\*)\s*(\d+))?(?:\s*\*\s*(\d+)(?:\s*(?:\^|\*\*)\s*(\d+))?)?")
+SYMBOL = re.compile(r"[A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[[A-Za-z_0-9]+\]))*(?:\s*[-+]\s*\d+)?")
+OP = re.compile(r"(<=|>=|==|<|>)")
 
 
-def to_int(text: str) -> int:
-    """Parse numbers like 100, -1000, 10^5 or 2 * 10^5."""
-    text = text.replace(" ", "")
-    is_neg = text.startswith("-")
-    if is_neg:
-        text = text[1:]
-    if "*10^" in text:
-        base, exp = text.split("*10^")
-        val = int(base) * 10 ** int(exp)
-    elif "^" in text:
-        base, exp = text.split("^")
-        val = int(base) ** int(exp)
+def to_int(text):
+    match = NUMBER.fullmatch(text.strip())
+    if not match:
+        return None
+    a, exponent, b, b_exponent = match.groups()
+    if any(len(x) > 18 for x in (a.lstrip('-'), b or '')):
+        return None
+    if any(int(x) > 18 for x in (exponent, b_exponent) if x):
+        return None
+    # Conventional mathematical notation: -10^2 means -(10^2).
+    value = (-1 if a.startswith('-') else 1) * abs(int(a)) ** int(exponent or 1)
+    if b:
+        value *= int(b) ** int(b_exponent or 1)
+    return value
+
+
+def analyze(text):
+    bounds, constants, symbols, edges = {}, {}, [], []
+    dependent, unparsed = [], []
+    found_section = re.search(r"(?im)^\s*(?:#+\s*)?Constraints\s*:\s*$", text)
+    if found_section:
+        text = text[found_section.end():]
+        text = re.split(r"(?m)^\s*##?\s", text, maxsplit=1)[0]
     else:
-        val = int(text)
-    return -val if is_neg else val
+        # Without a marked section, only recognize standalone comparison lines.
+        text = '\n'.join(line for line in text.splitlines() if OP.search(line))
+    for raw in text.splitlines():
+        line = raw.strip().strip('`').strip()
+        if line.startswith(('- ', '* ')):
+            line = line[2:].strip().strip('`')
+        line = line.rstrip('.')
+        if not line or line.startswith('```'):
+            continue
+        parts = OP.split(line)
+        if len(parts) < 3:
+            unparsed.append(line)
+            continue
+        atoms = [p.strip().replace('`', '') for p in parts[::2]]
+        operators = parts[1::2]
+        values = [to_int(a) for a in atoms]
+        if any(v is None and not SYMBOL.fullmatch(a) for a, v in zip(atoms, values)):
+            unparsed.append(line)
+            continue
+        for atom, value in zip(atoms, values):
+            if atom not in bounds:
+                bounds[atom] = [value, value] if value is not None else [None, None]
+                if value is not None:
+                    constants[atom] = value
+                else:
+                    symbols.append(atom)
+        if any(values[i] is None and values[i + 1] is None for i in range(len(operators))):
+            dependent.append(line)
+        for a, op, b in zip(atoms, operators, atoms[1:]):
+            if op in ('>', '>='):
+                a, b = b, a
+            edges.append((a, b, int(op in ('<', '>'))))
+            if op == '==':
+                edges.append((b, a, 0))
+    # Edge (a,b,d) means a+d <= b. Propagate only logically necessary bounds.
+    inconsistent = False
+    for _ in range(len(bounds) + 1):
+        changed = False
+        for a, b, delta in edges:
+            low, high = bounds[a][0], bounds[b][1]
+            if low is not None and (bounds[b][0] is None or bounds[b][0] < low + delta):
+                bounds[b][0] = low + delta
+                changed = True
+            if high is not None and (bounds[a][1] is None or bounds[a][1] > high - delta):
+                bounds[a][1] = high - delta
+                changed = True
+        if any(lo is not None and hi is not None and lo > hi for lo, hi in bounds.values()):
+            inconsistent = True
+            break
+        if not changed:
+            break
+    if any(bounds[a] != [v, v] for a, v in constants.items()):
+        inconsistent = True
+    return bounds, symbols, dependent, unparsed, inconsistent
 
 
-def main() -> int:
-    if "--help" in sys.argv[1:]:
+def main():
+    if '--help' in sys.argv[1:]:
         print(__doc__.strip())
         return 0
-    spec_path = Path("SPEC.md")
-    if not spec_path.exists():
-        print("ERROR: SPEC.md not found.")
+    spec = Path('SPEC.md')
+    if spec.is_symlink():
+        print('Cannot read symlinked SPEC.md.')
         return 1
-    spec = spec_path.read_text()
-    found = 0
-    for line in spec.splitlines():
-        match = PATTERN.search(line)
-        if not match:
-            continue
-        low, name, high = to_int(match.group(1)), match.group(2).strip(), to_int(match.group(3))
-        found += 1
-        if low == high:
-            print(f"{name}: [{low}, {high}]  minimal boundaries: {low}")
-        elif high <= low + 1:
-            print(f"{name}: [{low}, {high}]  minimal boundaries: {low}, {low + 1}")
-        else:
-            print(f"{name}: [{low}, {high}]  minimal boundaries: {low}, {low + 1} (avoid upper bounds {high} in black-box)")
-    if not found:
-        print("No numeric constraints found in SPEC.md.")
-    return 0
+    if not spec.exists():
+        print('ERROR: SPEC.md not found.')
+        return 1
+    try:
+        bounds, symbols, dependent, unparsed, inconsistent = analyze(spec.read_text())
+    except OSError as error:
+        print(f'Cannot read SPEC.md: {error}')
+        return 1
+    lines = []
+    if inconsistent:
+        lines.append('WARNING: extracted constraints conflict; review the specification. No candidates suggested.')
+    else:
+        for name in symbols:
+            lo, hi = bounds[name]
+            if lo is None and hi is None:
+                continue
+            candidates = set()
+            if lo is not None:
+                candidates.update((lo, lo + 1))
+            if hi is not None:
+                candidates.update((hi - 1, hi))
+            candidates = sorted(x for x in candidates if (lo is None or x >= lo) and (hi is None or x <= hi))
+            # Clamp: keep only lower boundaries (lo, lo + 1)
+            if lo is not None:
+                candidates = [x for x in candidates if x <= lo + 1]
+            lines.append(f'{name}: [{lo if lo is not None else "unknown"}, '
+                         f'{hi if hi is not None else "unknown"}] minimal candidates: {", ".join(map(str, candidates))}')
+    lines.extend('Dependent: ' + line for line in dependent)
+    lines.extend('Unparsed rule: ' + line for line in unparsed)
+    if not lines:
+        lines.append('No supported integer constraints found.')
+    print('\n'.join(lines[:30]))
+    if len(lines) > 30:
+        print(f'{len(lines) - 30} more constraint lines omitted; read SPEC.md.')
+    print('Candidates satisfy extracted numeric bounds only. Check dependent/prose rules and types.')
+    return int(inconsistent)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())
