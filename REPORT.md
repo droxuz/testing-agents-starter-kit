@@ -69,7 +69,7 @@ The table below records the evaluation from the initial baseline run on all 61 d
 | Phase 3: `fix_oracles` automated in-place oracle alignment (`exp3-oracles`) | 0.8210 (23/28) | 0.6460 (14/24) | 0.9740 | yes |
 | Phase 4: `bva_report` exact relational mutant ties & 2-iter loops (`exp4-bva-pipeline`, `exp5`) | 0.8930 (25/28) | 0.6740 (15/24) | 0.9740 | yes |
 | Phase 4: `mcdc_report` standalone condition truth-table scenarios (`exp6-mcdc`) | 0.8930 (25/28) | 0.8410 (17/24) | 0.9320 | yes |
-| Peyton's blackbox prompt token tuning (`origin/peyton-branch` `acb6961`) | Unspecified | Unspecified | Unspecified | no |
+| Peyton's blackbox prompt token tuning (`origin/peyton-branch` `acb6961`) | 0.3143 (5/17) | 0.5 (1/2) | 0.9394 | no |
 | Matthew's expanded black-box prompt, five-problem comparison (`bb-starter-subset-r2` → `bb-prompt-v1-subset-r2`) | 13/27 → 12/27 bugs | 1/7 → 1/7 hard mutants | 0.9529 → 0.9529 | no |
 | Andrew & Droxuz PR #1/#2 whitebox diagnostic tools (`28c2ce4`, `fc22413`) | 0.6726 (15/22) | 0.7205 (12/21) | 1.0000 | yes (fallback) |
 | Prompt guards: append guard (`cat >>`), test ceiling (10-12), instant clamp (`test-2prob-guards`, `verify-merge-canary`) | 0.8570 (11/13) | 1.0000 (12/12) | 0.9500 | yes |
