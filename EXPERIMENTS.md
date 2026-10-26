@@ -299,3 +299,24 @@ Includes the 4 core problems plus `lcb-3566` (strings), `lcb-3654` (DP), `lcb-36
 | `lcb-3612` | 50 | 5 | 5/7 | 9/9 | 50 | 100.0% |
 
 ---
+
+### Experiment: `verify-merge-canary` (whitebox)
+- **Timestamp:** 2026-10-25 20:54:11
+- **Notes / Hypothesis:** Development benchmark run
+- **Cost / Tokens:** $0.0154 | 152,431 tokens
+- **Total Function Calls Used:** 32
+
+| Metric | Result | Target / Baseline |
+|---|---|---|
+| **Bug Detection Rate** | **100.0% (5/5)** | Primary Goal |
+| **Hard-Mutant Score** | **0.0% (0/0)** | High-Yield Mutants |
+| **Path Coverage** | 100.0% | Branch/Path Exhaustion |
+| **Branch Coverage** | 100.0% | Structural Coverage |
+| **Oracle Precision** | 37.5% | Test Correctness |
+
+#### Per-Problem Breakdown
+| Problem | Valid Tests | Wrong Oracle | Bugs Killed | Hard Mutants | Calls Used | Branch Cov |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lcb-3566` | 12 | 20 | 5/5 | 0/0 | 32 | 100.0% |
+
+---

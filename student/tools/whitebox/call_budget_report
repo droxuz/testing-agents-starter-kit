@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Count actual target entries while executing all test_*.py files against the reference.
+Usage: call_budget_report [--budget 50] [--method NAME] [--timeout SECONDS] [--json]
+Includes parameters, loops, helpers, fixture calls and collection-time calls.
+Budget boundaries are a diagnostic projection before evaluator filtering, not its score.
+"""
+import sys
+
+from _runtime import common_parser, execute, json_output, prepare, suite_passed
+
+
+def project_budget(report, budget):
+    used = report.get('calls_outside_tests', 0)
+    rows = []
+    by_file = {}
+    for test in report.get('tests', []):
+        before = used
+        used += test['calls']
+        filename = test['nodeid'].split('::')[0]
+        by_file[filename] = by_file.get(filename, 0) + test['calls']
+        rows.append(test | {'calls_before': before, 'calls_after': used,
+                            'budget_status': 'past_budget' if before >= budget and test['calls'] else 'crosses_budget' if used > budget else 'within_budget'})
+    return {'limit': budget, 'observed_calls': report.get('calls_total', 0),
+            'remaining': max(0, budget - report.get('calls_total', 0)),
+            'exceeded': report.get('calls_total', 0) > budget,
+            'calls_by_file': by_file, 'ordered_tests': rows,
+            'note': 'Projection uses all observed calls before evaluator validity/flakiness filtering; execution is not stopped at the boundary.'}
+
+
+HELP_TEXT = """usage: call_budget_report [--method NAME] [--budget 50] [--json]
+Count actual runtime target calls across tests against solution.py.
+Projects total calls (loops, helpers, fixtures) against budget."""
+
+def main():
+    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+        print(HELP_TEXT)
+        return 0
+    parser = common_parser(__doc__)
+    parser.add_argument('--budget', type=int, default=50, help='target-call allowance; default 50')
+    args = parser.parse_args()
+    if not 1 <= args.budget <= 10000:
+        parser.error('--budget must be 1-10000')
+    try:
+        root, source, method = prepare(args)
+        report = execute(root, source, method, timeout=args.timeout)
+        report['tool'] = 'call_budget_report'
+        report['budget'] = project_budget(report, args.budget)
+        if args.json:
+            json_output(report)
+        else:
+            print(f"Execution: {report['status']}; target=Solution.{method}")
+            if report['status'] != 'completed':
+                print(report.get('detail', 'Counts unavailable or incomplete.'))
+            else:
+                b = report['budget']
+                print(f"Observed target calls: {b['observed_calls']}/{args.budget}; remaining: {b['remaining']}")
+                print(f"Outside tests: {report['calls_outside_tests']}; by file: {b['calls_by_file']}")
+                for test in b['ordered_tests'][:70]:
+                    print(f"{test['nodeid'][:160]}: {test['calls']} calls, cumulative={test['calls_after']}, {test['budget_status']}, {test['outcome']}")
+                repeats = len(report['repeated_recorded_inputs'])
+                print(f"Repeated input-preview groups: {repeats}; inspect before pruning stateful cases.")
+                print(b['note'])
+                if not suite_passed(report):
+                    print('Failures/skips may hide calls that would run after repairs; rerun after edits.')
+        return 0 if suite_passed(report) and not report['budget']['exceeded'] else 1
+    except (ValueError, OSError, SyntaxError) as error:
+        parser.exit(2, f'Cannot count calls: {error}\n')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

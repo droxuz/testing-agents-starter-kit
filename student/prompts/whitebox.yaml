@@ -15,16 +15,17 @@ instance_template: |
   ## Rules
   - Write your tests ONLY in `{{test_file}}`. Do NOT edit `tests/test_blackbox.py` or `solution.py`.
   - Import with: `from solution import Solution` and invoke `Solution().{{func_name}}(...)`.
+  - Write assertions in standard order: `assert Solution().{{func_name}}(...) == <value>`.
   - Do not read or modify files outside this folder.
   - Do not import os, inspect, pathlib or similar modules in tests, and do not open files.
   - CRITICAL: When adding tests across phases, always APPEND (`cat >> {{test_file}}`) or preserve existing tests.
     NEVER overwrite `{{test_file}}` with `cat >` after Phase 1 — doing so deletes your prior coverage.
-  - Tool discipline: ONLY use the provided tools (`coverage_report`, `bva_report`, `mcdc_report`, `fix_oracles`, `check_tests`, `run_tests`).
+  - Tool discipline: ONLY use the provided tools (`coverage_report`, `bva_report`, `mcdc_report`, `fix_oracles`, `check_tests`, `run_tests`, `discover_conditions.py`, `oracle_report`, `call_budget_report`).
     Do NOT run raw pytest commands, do not navigate directories (`cd`), and do not run python one-liners.
   - CRITICAL: NEVER include the string "solution.py" anywhere in tests, docstrings, or comments.
     Any test file containing "solution.py" is rejected by the evaluator with 0 score.
   - NEVER write constant assertions like `assert True`.
-  - Total call budget is {{max_calls}} calls across both test files. Keep `{{test_file}}` under 15–20 tests.
+  - Call allowance: {{max_calls}} target calls max across both files. Loops, fixtures, and repeated calls count; baseline tests spend budget first. Keep `{{test_file}}` under 10–12 focused tests.
   - Put your most potent edge-case and boundary tests at the TOP of `{{test_file}}`.
 
   ## Execution Pipeline (Follow in exact order)
@@ -32,27 +33,32 @@ instance_template: |
   ### Phase 1: Structural Coverage
   1. Run `coverage_report` to identify missed lines or branches in `solution.py`.
   2. If any lines or branches are missed, write tests in `{{test_file}}` to cover them.
+     (If a missed branch is difficult to reach, optionally run `discover_conditions.py --line N` to inspect its enclosing guards).
   3. Verify with `run_tests --whitebox-only`.
   4. When branch coverage reaches 100% (or was already 100%), or when two attempts in a row fail to improve coverage, PROCEED IMMEDIATELY TO PHASE 2. DO NOT STOP.
 
   ### Phase 2: Relational Boundaries & Constant Extremes
   5. Run `bva_report`.
   6. Act on every section in `bva_report` output. Write the EXACT-TIE test first for
-     every MUTANT SITE — it is the only input that kills the operator mutation.
+     every MUTANT SITE (e.g. left == right) — it is the only input that kills the operator mutation.
+     Write TWO-ITER and EARLY-EXIT tests for each reported loop.
      Append these tests to `{{test_file}}`.
   7. Run `mcdc_report`.
-  8. For each MC/DC scenario listed, write one test. Use dummy or approximate assertions —
+  8. If no compound conditions are reported, proceed directly to Phase 3. Otherwise, for each MC/DC
+     scenario listed, write one test. Use dummy or approximate assertions (e.g. `== 0`) —
      DO NOT try to compute exact expected values by hand. Append these tests with `cat >> {{test_file}}`.
 
   ### Phase 3: Automated Oracle Alignment & Verification
   9. Run `fix_oracles` IMMEDIATELY. Never debug or calculate assert values by hand —
      `fix_oracles` rewrites all assertions in `{{test_file}}` to match `solution.py` return values.
   10. Verify with `run_tests --whitebox-only` to confirm all tests pass cleanly.
+      (If an assertion failure persists after `fix_oracles`, run `oracle_report --method {{func_name}}` to inspect the actual returned value).
 
-  ### Phase 4: Budget & Submission Gate
+  ### Phase 4: Budget Gate & Submission
   11. Run `check_tests`.
      - If any errors or budget warnings appear, fix them.
      - If calls exceed {{max_calls}}, prune redundant tests from the bottom of `{{test_file}}`.
+     - (If your tests use loops or fixtures and budget is close, optionally run `call_budget_report --method {{func_name}} --budget {{max_calls}}` to verify runtime calls).
   12. The moment `check_tests` reports OK, your VERY NEXT command must be:
       `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
       Do NOT run `cat`, `pytest`, or any file inspection commands — submit immediately.

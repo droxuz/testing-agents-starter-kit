@@ -30,3 +30,110 @@ If two visible folders contain a tool with the same name, the mode's own folder 
 - `blackbox/list_constraints`: lists numeric constraints from the spec with boundary values.
 - `whitebox/run_tests`: runs the tests against `solution.py`.
 - `whitebox/coverage_report`: shows missed lines and branches.
+- `whitebox/bva_report`: AST boundary value and relational mutant introspection.
+- `whitebox/mcdc_report`: standalone MC/DC condition coverage analysis.
+- `whitebox/fix_oracles`: automated in-place oracle alignment against reference solution.
+
+## Independent white-box analysis commands
+
+Run these commands from the task workspace. Each reads the source directly; no
+previous report or intermediate file is required. They share parsing functions
+internally, but do not launch one another's CLI or run a test-generation pipeline.
+
+| Command | Use when | Default report limit |
+|---|---|---|
+| `discover_conditions.py` | Locate expression targets, atoms, guards, and structural reach hints | 8 expressions |
+| `boundary_values.py` | Request boundary and truth-value hints for a simple or compound expression | 4 expressions |
+| `mcdc_targets.py` | Request abstract unique-cause independence pairs | 3 compound expressions |
+
+All three accept `--line N`, `--line N --column K`, or `--target 'ID'`, as well as
+`--limit` and `--verbose`. IDs include function, line, and zero-based UTF-8 column.
+An explicit MC/DC target may also be a single condition. Quote target IDs in shell
+commands. `--max-atoms` bounds MC/DC enumeration (default 6, maximum 8).
+
+For example, once a useful source line is known, call just the relevant command:
+
+```bash
+boundary_values.py --line 12
+mcdc_targets.py --line 12
+```
+
+These are alternative requests, not a required sequence. MC/DC already includes
+guard and boundary hints; request separate discovery/BVA output only when it adds
+information. The older `bva_report` remains available as a quick comparison scan.
+
+The reports do not execute source, solve inputs, derive expected outputs, measure
+coverage, or establish bug detection. Reach requirements are evaluation snapshots,
+not a complete control/dataflow proof. Repeated or scalar-equivalent conditions and
+shared variables may make abstract pairs infeasible. Potential-effect/exception
+flags are nonexhaustive. Validate concrete inputs and results against the contract,
+then use the execution/coverage tools. Python `and`/`or` can return operands rather
+than booleans; chained-comparison aliases represent shared, once-evaluated values.
+
+Run the analysis regression checks from the repository root with:
+
+```bash
+python -m unittest discover -s student/tools/whitebox/_tests -p 'test_*.py'
+```
+
+## Oracle diagnostics, runtime call counting and local mutation probing
+
+Three independent runtime commands are available in white-box/combined mode. All
+accept `--method NAME`, `--timeout SECONDS`, and `--json`. They read task source and
+tests only; none uses hidden bug/mutant data or launches another tool's CLI.
+
+| Command | Purpose | Default bound |
+|---|---|---|
+| `oracle_report` | Execute tests and report failures, exceptions, and observed target returns without rewriting assertions | 20 seconds |
+| `call_budget_report` | Execute tests and count actual target entries, by test/file, with an ordered budget projection | 50-call allowance; 20 seconds |
+| `mutation_probe` | Test locally generated source variants after two passing reference runs | 12 variants; 4 seconds per suite; 60 seconds overall |
+
+Run from the task workspace, replacing `solve` with the target method:
+
+```bash
+oracle_report --method solve
+call_budget_report --method solve --budget 50
+mutation_probe --method solve --limit 6 --test-timeout 3 --timeout 30
+```
+
+`oracle_report` runs both test files against the reference and reports failed IDs,
+pytest failure details, and bounded input/output examples. It never changes tests
+or corrects assertions automatically. Passing tests do not establish SPEC-valid
+inputs or strong assertions. Review failures, correct your white-box tests as
+needed, and rerun execution. Reference observations must remain confined to
+white-box/combined mode.
+
+`call_budget_report` includes parameters, loops, helper calls, fixture setup/teardown,
+test-module import calls, and recursive target entries. It reports observed calls,
+remaining allowance, and cumulative test boundaries. Exit 1 can mean a failing suite
+or an exceeded budget; inspect the report. Failed/skipped paths may hide calls, so
+rerun after repairs. Counts precede evaluator validity/flakiness filtering and are a
+diagnostic projection, not an exact reproduction of evaluator partial-test handling.
+Calls during reference-module initialization precede instrumentation and are not
+counted. Repeated input previews are hints, not proof of redundant tests.
+
+`mutation_probe` requires two passing reference-suite executions with observed
+calls and matching test IDs/outcomes/counts. If preserved baseline tests fail, skip
+the probe instead of changing them. It generates deterministic, interleaved AST
+variants of the selected method (including nested definitions), executes each in a
+fresh subprocess, and leaves source/tests unchanged. `--line N` focuses a source
+site; `--limit` is 1-30, `--test-timeout` is 0.1-20 seconds, and `--timeout` is
+0.1-100 seconds. Timeouts, invalid runs, changed collections, and inconclusive runs
+are distinct from kills. Equivalent mutants may survive; the local sample is not
+the evaluator's mutation or hard-mutant score. Two matching reference runs are an
+instability check, not proof of nonflakiness.
+
+The white-box prompt is restored to its earlier coverage and behavioral-testing
+workflow. Runtime commands are independently available through their advertised
+help; their availability does not require running every command. Static tools
+remain independently selectable, with no required discovery/BVA/MC/DC chain.
+`oracle_report` diagnoses failures without edits; `fix_oracles` is a separate,
+limited equality fixer whose edits require review and subsequent execution.
+
+Private `_runtime.py` provides suite execution, target-call recording, method
+selection, and bounded diagnostics; `_mutations.py` generates mutation candidates.
+Neither is an agent-visible command. Workers collect only direct `tests/test_*.py`
+files, disable external pytest plugins/configuration and conftest loading, and
+support inline fixtures and parametrization. Temporary request/report files stay
+inside the task folder and are cleaned up on completion/timeout. There is no
+candidate-JSON execution interface.
