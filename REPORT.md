@@ -73,6 +73,7 @@ The table below records the evaluation from the initial baseline run on all 61 d
 | Matthew's expanded black-box prompt, five-problem comparison (`bb-starter-subset-r2` → `bb-prompt-v1-subset-r2`) | 13/27 → 12/27 bugs | 1/7 → 1/7 hard mutants | 0.9529 → 0.9529 | no |
 | Andrew & Droxuz PR #1/#2 whitebox diagnostic tools (`28c2ce4`, `fc22413`) | 0.6726 (15/22) | 0.7205 (12/21) | 1.0000 | yes (fallback) |
 | Prompt guards: append guard (`cat >>`), test ceiling (10-12), instant clamp (`test-2prob-guards`, `verify-merge-canary`) | 0.8570 (11/13) | 1.0000 (12/12) | 0.9500 | yes |
+| Andrew prompt specification + Diagnostic Tools| 75.67 | 82.99 | 98.21 | yes |
 
 Matthew's black-box prompt experiment also reduced oracle precision from 0.9639 to 0.8939 and increased tokens from 236,814 to 273,083 (saved black-box evaluator outputs for the two runs above). We rejected that expansion. The retained tools address demonstrated constraint and assertion mistakes, but do not establish a consistent standalone black-box detection gain. Local regression checks verify supported safeguards; they are not performance measurements.
 
