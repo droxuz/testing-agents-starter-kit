@@ -12,7 +12,7 @@ Peyton Hislop 217342957
 Strategy in `student/final.yaml`: `separate`
 
 We run a two-stage sequential testing pipeline:
-1. **Black-box stage**: The agent reads `SPEC.md` without implementation access, uses `list_constraints` to extract boundary conditions, and generates initial tests in `test_blackbox.py`.
+1. **Black-box stage**: The agent reads `SPEC.md` without implementation access, uses Matthew's `list_constraints` to identify supported bounds and dependent constraints, and generates `test_blackbox.py` from equivalence classes and boundary cases. It derives expected values from the specification, runs `check_inputs`, then the black-box `check_tests` guard, which delegates to the existing shared checker. Unsupported constraints require manual review; tests are not executed against the stub.
 2. **White-box stage**: The agent inspects `solution.py` and `test_blackbox.py`, executing Ethan's 4-phase sequential workflow:
    - **Phase 1 (Structural Coverage)**: Run `coverage_report`; cover missed lines/branches.
    - **Phase 2 (Boundary & MC/DC)**: Run `bva_report` (targeting exact relational ties `<` vs `<=`, loop 2-iter bounds) and `mcdc_report` (sub-condition truth-table pairs). Tests are strictly appended (`cat >>`) to protect prior coverage.
@@ -25,9 +25,11 @@ Teammate tools from Andrew and Droxuz's PRs (`discover_conditions.py`, `oracle_r
 
 | Part | Mode | What it does | Why it is there |
 |---|---|---|---|
-| `student/prompts/blackbox.yaml` | blackbox | Directs the model to write pytest tests from specification alone using boundary values and example checks. | Initial black-box test generation without implementation bias. |
+| `student/prompts/blackbox.yaml` | blackbox | Combines specification-based partitions and boundaries with constraint review, valid pytest assertion style, and prompt submission after checks. Prohibits test-body execution against the stub. | Improves input and assertion discipline without implementation access. |
 | `student/prompts/whitebox.yaml` | whitebox | Implements Ethan's 4-phase pipeline (Coverage -> BVA/MCDC -> Fix Oracles -> Check Tests -> Clamped Submit) with append guard (`cat >>`) and test ceiling. | Closes branch coverage, targets relational mutant ties, and prevents prompt budget overrun. |
-| `student/tools/blackbox/list_constraints` | blackbox | Regex parser that lists numeric inequalities and boundary values from `SPEC.md`. | Helps the agent identify numeric range bounds. |
+| `student/tools/blackbox/list_constraints` | blackbox | Matthew's parser handles supported strict integer bounds, singleton ranges, comparison chains, dependent constraints, and unsupported rules. | Avoids suggesting forbidden endpoints; proposed values still require specification review. |
+| `student/tools/blackbox/check_inputs` | blackbox | Checks supported literal arguments, lengths, parameter relationships, and declared row fields against specification bounds. | Rejects known out-of-spec inputs; UNKNOWN means unverified, not valid. |
+| `student/tools/blackbox/check_tests` | blackbox | Checks assertion-method misuse, conflicting literal answers for identical fresh-instance inputs, and a configurable static call-site budget; delegates to the existing shared checker. | Adds black-box safeguards while retaining the team's shared validation behavior. |
 | `student/tools/shared/check_tests` | shared | Statically analyzes `tests/` for syntax errors, missing assertions, and forbidden AST imports. Features Ethan's seed-test warning tolerance. | Guards against syntax failures and evaluator file rejection while tolerating seed blackbox test smells. |
 | `student/tools/whitebox/coverage_report` | whitebox | Runs `pytest-cov` and outputs uncovered line numbers and missed branches. | Informs the white-box agent of remaining coverage deficits. |
 | `student/tools/whitebox/bva_report` | whitebox | Ethan's AST boundary tool reporting relational mutation sites (`<`, `<=`), loop 2-iter, and nested exit bounds. | Flags exact tie cases needed to kill relational operator mutants. |
@@ -68,8 +70,11 @@ The table below records the evaluation from the initial baseline run on all 61 d
 | Phase 4: `bva_report` exact relational mutant ties & 2-iter loops (`exp4-bva-pipeline`, `exp5`) | 0.8930 (25/28) | 0.6740 (15/24) | 0.9740 | yes |
 | Phase 4: `mcdc_report` standalone condition truth-table scenarios (`exp6-mcdc`) | 0.8930 (25/28) | 0.8410 (17/24) | 0.9320 | yes |
 | Peyton's blackbox prompt token tuning (`origin/peyton-branch` `acb6961`) | Unspecified | Unspecified | Unspecified | no |
+| Matthew's expanded black-box prompt, five-problem comparison (`bb-starter-subset-r2` → `bb-prompt-v1-subset-r2`) | 13/27 → 12/27 bugs | 1/7 → 1/7 hard mutants | 0.9529 → 0.9529 | no |
 | Andrew & Droxuz PR #1/#2 whitebox diagnostic tools (`28c2ce4`, `fc22413`) | 0.6726 (15/22) | 0.7205 (12/21) | 1.0000 | yes (fallback) |
 | Prompt guards: append guard (`cat >>`), test ceiling (10-12), instant clamp (`test-2prob-guards`, `verify-merge-canary`) | 0.8570 (11/13) | 1.0000 (12/12) | 0.9500 | yes |
+
+Matthew's black-box prompt experiment also reduced oracle precision from 0.9639 to 0.8939 and increased tokens from 236,814 to 273,083 (saved black-box evaluator outputs for the two runs above). We rejected that expansion. The retained tools address demonstrated constraint and assertion mistakes, but do not establish a consistent standalone black-box detection gain. Local regression checks verify supported safeguards; they are not performance measurements.
 
 ## 6. Design questions
 
@@ -81,10 +86,12 @@ Combining **`bva_report` exact boundary tie testing** with **`fix_oracles` autom
 
 2. How does your agent decide on expected values in black-box mode, and how did you reduce wrong ones?
 
-In black-box mode, the agent has no reference code. It determines expected values by manually tracing problem specifications on small, representative inputs (e.g. $n=1, 2$, empty lists, simple strings) and using worked examples from `SPEC.md`.
-We reduced wrong oracles through three mechanisms:
-- **Constraint extraction**: `list_constraints` parses explicit inequalities and ranges from `SPEC.md`, preventing the agent from testing invalid out-of-spec inputs.
-- **Prompt rules & Peyton's tuning**: Teammate Peyton explored prompt tuning on `blackbox.yaml` (`acb6961`); we instructed the model to prioritize small partition cases where mental math is trivial, avoiding large inputs where LLM dry-runs fail.
+In black-box mode, the agent has only the specification and a stub. It derives expected values by reasoning through small legal examples, equivalence classes, and boundary cases. Empty inputs are used only when permitted. It never obtains expected values by executing the stub or a hidden implementation.
+
+Matthew's retained safeguards reduce specific sources of invalid tests:
+- **Constraint extraction and input checks**: `list_constraints` proposes supported integer boundaries; `check_inputs` checks supported literal arguments and dependent bounds. Unsupported prose, symbolic rules, and dynamic inputs remain UNKNOWN and require review. Neither tool certifies complete legality.
+- **Assertion and consistency checks**: The black-box `check_tests` flags `self.assertEqual` misuse in plain pytest classes, conflicting literal answers for identical fresh-instance inputs, and static call-site budget risks. It then delegates to the team's existing shared checker.
+- **Expected-value discipline**: When an input is corrected, the model must recompute its expected answer. Passing static checks does not prove semantic correctness. Black-box experiments did not demonstrate a reliable independent detection improvement.
 - **Seed-test protection in `check_tests`**: Ethan updated `check_tests` so that missing assertions or minor smells in inherited `test_blackbox.py` trigger non-fatal warnings rather than blocking white-box execution or failing the whole suite.
 
 3. What does the white-box side of your agent add over the black-box side? With the separate strategy, use the evaluator's "black-box tests alone" numbers. With the combined strategy, compare against a run of your black-box prompt and tools on their own.
@@ -98,6 +105,8 @@ Across the 61 development problems (`runs/my-final/final/evaluation.json`):
 Qualitatively, blackbox tests explore high-level happy paths and spec examples, but miss internal implementation branches, off-by-one loop conditions, and relational operator boundary ties. Whitebox directly targets these structural gaps using `bva_report`, `mcdc_report`, and `fix_oracles`.
 
 4. How does your agent decide which tests to keep within the call budget?
+
+The black-box stage has its own 25-call allowance. Matthew's black-box guard defaults to 25 and accepts `--max-calls {{max_calls}}`; its source-call-site estimate warns about obvious excess but cannot certify runtime counts through loops, parametrization, or helpers. High-value cases should come first.
 
 Our agent manages the 50-call budget through a combination of static limits, priority ordering, and hard prompt clamping:
 - **Prompt Test Ceiling (10–12 tests)**: In `student/prompts/whitebox.yaml`, we cap `test_whitebox.py` at 10–12 tests, since baseline blackbox tests already consume ~20–25 calls.
