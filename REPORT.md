@@ -38,7 +38,7 @@ The selector first prefers new connections between executed lines. It then consi
 
 ## 4. Results on the development problems
 
-We compared saved evaluations for all 61 development problems: starter `runs/my-final/final/evaluation.json` and final `runs/matthew-final-v3/final/evaluation.json`. Neither evaluation capped the number of mutants.
+We compared the saved starter evaluation with our final evaluation for all 61 development problems. The final results are included in the submission as `results/final_evaluation.json`. Neither evaluation capped the number of mutants.
 
 | Metric | Starter baseline | Your final configuration |
 |---|---:|---:|
